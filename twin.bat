@@ -1,5 +1,5 @@
 @echo off
-rem Twin Depot launcher for Windows: double-click for a menu, or "twin demo", "twin real", "twin ports", ...
+rem Twin Depot launcher for Windows: double-click to open the control panel in your browser, or "twin demo", "twin real", "twin ports", ...
 setlocal
 set "PY="
 if exist "%~dp0.twin-python" set /p PY=<"%~dp0.twin-python"
@@ -17,3 +17,4 @@ if not defined PY (
 )
 set PYTHONUTF8=1
 "%PY%" "%~dp0twin.py" %*
+if errorlevel 1 if "%~1"=="" pause

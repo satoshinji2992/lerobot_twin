@@ -2,3 +2,4 @@
 *.bat text eol=crlf
 *.sh text eol=lf
 twin.py text eol=lf
+*.command text eol=lf

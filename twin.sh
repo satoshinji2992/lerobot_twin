@@ -1,5 +1,5 @@
 #!/bin/sh
-# Twin Depot launcher for macOS / Linux:  ./twin.sh demo | real | ports | setup | ...  (no argument: menu)
+# Twin Depot launcher for macOS / Linux:  ./twin.sh demo | real | ports | setup | ...  (no argument: web control panel)
 here=$(cd "$(dirname "$0")" && pwd)
 py=""
 [ -f "$here/.twin-python" ] && py=$(head -n 1 "$here/.twin-python")

@@ -453,3 +453,51 @@ def test_find_ports_records_serial_numbers(monkeypatch, tmp_path):
     cfg = system.load_config()
     assert (cfg["leader_port"], cfg["leader_serial"]) == ("/dev/ttyACM0", "AAA")
     assert (cfg["follower_port"], cfg["follower_serial"]) == ("/dev/ttyACM1", "BBB")
+
+
+# --------------------------------------------------------------------------------- web panel
+def test_web_panel_runs_a_shift_and_reports_the_score(monkeypatch, tmp_path):
+    import json
+    import re
+    import threading
+    import time
+    import urllib.error
+    import urllib.request as u
+
+    from twin_depot import system, webui
+
+    monkeypatch.setattr(system, "CONFIG_PATH", tmp_path / "config.ini")
+    sim = Path(__file__).resolve().parents[1]
+    server, panel, url = webui.make_server(sim / "twin.py", lambda: sys.executable, port=0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        token = re.search(r'const TOKEN = "([^"]+)"', u.urlopen(url).read().decode()).group(1)
+
+        def api(path, body=None, tok=token):
+            data = None if body is None else json.dumps(body).encode()
+            return json.loads(
+                u.urlopen(u.Request(url + path.lstrip("/"), data, {"X-Twin-Token": tok})).read()
+            )
+
+        with pytest.raises(urllib.error.HTTPError):  # other web pages can't drive the arms
+            api("/api/state", tok="wrong")
+        assert api("/api/run", {"cmd": "rm", "args": []})["ok"] is False
+        assert api("/api/config", {"updates": {"player": "Web"}})["config"]["player"] == "Web"
+        assert api("/api/state")["config"]["player"] == "Web"
+        r = api("/api/run", {"cmd": "demo", "args": ["--headless", "--duration", "12", "--hall", "builtin"]})
+        assert r["ok"], r
+        assert api("/api/run", {"cmd": "doctor", "args": []})["ok"] is False  # one job at a time
+        status = None
+        for _ in range(240):
+            st = api("/api/state")
+            status = st["status"] or status
+            if not st["job"]["running"]:
+                break
+            time.sleep(0.25)
+        assert st["job"]["rc"] == 0
+        assert status and status["phase"] in ("countdown", "shift") and "score" in status
+        assert "scene ready" in api("/api/log?since=0")["text"]
+    finally:
+        panel.shutdown_jobs()
+        server.shutdown()
+        server.server_close()

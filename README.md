@@ -23,9 +23,36 @@
 
 ```bash
 git clone https://github.com/satoshinji2992/lerobot_twin.git
+```
+
+然后**双击启动脚本**，浏览器里会打开控制台，之后的事都在网页上点：
+
+| 系统 | 启动脚本 |
+|---|---|
+| Windows | 双击 `twin.bat` |
+| macOS | 双击 `twin.command`（第一次可能要在“系统设置 → 隐私与安全性”里允许打开） |
+| Linux | 运行 `./twin.sh` |
+
+![控制台：上班中的实时分数、呼叫按钮、事件和输出](docs/control_panel.png)
+
+控制台（`http://127.0.0.1:8765`，只在本机开放）能做的事：
+
+- **第一次使用**：点“安装 / 更新环境”，自动建环境、装 LeRobot 和 MuJoCo、导入 Isaac 仓库，进度显示在下方“输出”里。
+- **开始一班**：选模式（演示 / 真机遥操作 / 只用主臂 / 远程接收），选难度、时长、场景、玩家名，点“开始”。游戏窗口照常在桌面上弹出。
+- **实时成绩**：分数、倍率、剩余时间、分对 / 分错 / 漏拣、排队、回收笼、AGV 和牵引车状态，还有最近的事件。结算时显示评级和排行榜名次。
+- **游戏内按钮**：开工、呼叫 AGV、呼叫牵引车、磁吸辅助、提示、清场、结束，和键盘、实体按钮效果一样。
+- **自动识别端口**：点一下，按提示拔掉、插回主臂的 USB 线。网页自己检测串口变化，不用按任何键，识别完把端口和 USB 序列号存进 `config.ini`。
+- **标定**：“标定从臂 / 标定主臂”。LeRobot 要你按回车的时候，点页面上的“回车”。
+- **工具**：体检、导入 Isaac 仓库、运行测试、把本机的臂推流到另一台仿真机。
+
+关掉启动脚本的窗口（或者点网页上的“关闭控制台”）就退出，正在运行的程序也会一起停掉。每次启动都会生成一个随机口令嵌在页面里，别的网站没法调用这个控制台。
+
+不想用网页的话，命令行一样能用：
+
+```bash
 cd lerobot_twin
-python twin.py setup      # Windows 也可以双击 twin.bat，选 setup
-python twin.py demo
+python twin.py setup      # 一次
+python twin.py demo       # 不带命令 = 打开网页控制台；twin menu = 终端菜单
 ```
 
 只需要 Python 3（用来跑启动器）。`setup` 会从 PyPI 装 `lerobot[feetech]>=0.4.4`，不需要 LeRobot 源码。要是把本仓库放在 LeRobot 源码目录里面（例如 `lerobot/sorting_sim/`），`setup` 会改成以可编辑方式安装那份源码。手动安装见 `requirements.txt`。
@@ -34,8 +61,8 @@ Windows、macOS、Linux 用的是**同一套命令**：`twin.py` 是一个只依
 
 | 系统 | 怎么启动 |
 |---|---|
-| Windows | 双击 `twin.bat` 出菜单，或在终端里 `twin demo` |
-| macOS / Linux | `./twin.sh demo`（不带参数出菜单） |
+| Windows | `twin demo`（不带参数打开网页控制台） |
+| macOS / Linux | `./twin.sh demo`（不带参数打开网页控制台） |
 | 任何系统 | `python twin.py demo`（任意 Python 3 都行） |
 
 下文的 `twin xxx` 指上面任意一种写法。
@@ -51,6 +78,8 @@ Windows、macOS、Linux 用的是**同一套命令**：`twin.py` 是一个只依
 | `twin udp` / `twin stream` | 机械臂接在另一台电脑上时用，见下一节 |
 | `twin config` | 查看设置；`twin config leader_id=alice player=小明` 修改设置 |
 | `twin doctor` | 体检：Python、MuJoCo、能不能开 OpenGL 窗口、串口和权限、Isaac 资产 |
+| `twin ui` | 网页控制台（不带命令时的默认）：`--port 9000` 换端口，`--no-browser` 不自动开浏览器 |
+| `twin menu` | 终端里的数字菜单 |
 | `twin import-isaac` | 重新导入 Isaac 仓库，可加 `--scene warehouse_multiple_shelves` 换别的仓库 |
 | `twin tests` | 跑单元测试 |
 
@@ -252,7 +281,7 @@ flowchart LR
 ```
 lerobot_twin/
 ├── twin.py               跨平台启动器（只用标准库）：setup / demo / real / ports / calibrate / doctor ...
-├── twin.bat · twin.sh    Windows / macOS·Linux 的薄包装，找到 Python 后调用 twin.py
+├── twin.bat · twin.command · twin.sh   启动脚本（Windows / macOS / Linux）：找到 Python，打开网页控制台
 ├── config.ini            本机设置：端口、id、玩家名（twin ports / twin config 生成，git 忽略）
 ├── play.py               游戏入口：python play.py --help
 ├── stream_teleop.py      远程推流端（机械臂接在别的电脑上时用）
@@ -269,6 +298,7 @@ lerobot_twin/
 │   ├── autopilot.py      阻尼最小二乘 IK + 抓放流程（含移动目标的拦截与跟随）
 │   ├── fleet.py          车辆：占用栅格 + A* 路线、供件 / 拉笼 / 巡逻任务、让行规则
 │   ├── hud.py            叠加文字与 3D 特效
+│   ├── webui.py · webui.html  网页控制台：本机 HTTP 服务、任务进程、端口向导、实时成绩
 │   ├── system.py         各系统的差异：串口命名、config.ini、macOS 的 mjpython 切换、Linux 串口权限
 │   └── app.py            主循环（viewer / headless）、自动认端口
 └── tests/test_twin_depot.py
@@ -313,6 +343,7 @@ twin tests                                 # 或 python -m pytest tests -q；无
 - 路线规划会绕开工作台和长皮带。
 - Isaac 仓库能编译成纯视觉背景（没导入时跳过）。
 - 双捏手势开局。
+- 网页控制台：口令校验、一次只跑一个任务、跑完一班能读到实时成绩和输出。
 - 跨平台：Windows / macOS / Linux 各自的串口猜测、`config.ini` 读写与默认值、macOS 自动切换到 `mjpython`、启动器在环境里运行命令。
 
 ---

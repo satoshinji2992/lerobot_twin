@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>孪生仓控制台</title>
+<style>
+:root {
+  --bg: #f3f4f1; --panel: #ffffff; --ink: #1c1f1d; --muted: #67706a; --line: #dfe2dc;
+  --accent: #e8a317; --accent-ink: #1c1f1d; --good: #1f8f55; --bad: #c8412f; --info: #2f6fc8;
+  --agv: #2f9e55; --tug: #2f6fc8; --chip: #eceee9; --console: #15181a; --console-ink: #d7e0d9;
+  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111413; --panel: #1a1e1c; --ink: #e8ebe7; --muted: #929b95; --line: #2b302d;
+    --chip: #232825; --console: #0b0d0c; --console-ink: #cfd8d1; --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+html, body { overflow-x: hidden; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px;
+  padding: 14px 24px; border-bottom: 1px solid var(--line); background: var(--panel);
+  position: sticky; top: 0; z-index: 5;
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+.brand .stripe { width: 26px; height: 18px; border-radius: 3px;
+  background: repeating-linear-gradient(135deg, var(--accent) 0 6px, var(--ink) 6px 12px); }
+.brand small { font-weight: 400; color: var(--muted); font-size: 13px; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.badge { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+.badge.ok::before, .badge.warn::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.badge.ok::before { background: var(--good); } .badge.warn::before { background: var(--accent); }
+main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; padding: 18px 24px 24px; max-width: 1400px; margin: 0 auto; }
+.col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; box-shadow: var(--shadow); min-width: 0; }
+.card h2 { margin: 0 0 12px; font-size: 15px; letter-spacing: .02em; display: flex; align-items: center; gap: 8px; }
+.card h2 { flex-wrap: wrap; }
+.card h2 .sub { font-weight: 400; color: var(--muted); font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 14px; }
+.tab { border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 8px; padding: 9px 6px; cursor: pointer; text-align: center; font: inherit; }
+.tab b { display: block; font-size: 14px; } .tab span { font-size: 12px; color: var(--muted); }
+.tab[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 14px; }
+label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+input[type=text], input[type=number], select {
+  font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; width: 100%; min-width: 0;
+}
+.toggles { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; font-size: 14px; }
+.toggles label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button.btn {
+  font: inherit; border: 1px solid var(--line); background: var(--chip); color: var(--ink);
+  border-radius: 8px; padding: 8px 14px; cursor: pointer; white-space: nowrap;
+}
+button.btn:hover:not(:disabled) { border-color: var(--muted); }
+button.btn:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+button.big { padding: 11px 22px; font-size: 16px; }
+button.danger { color: var(--bad); }
+button.agv { border-color: var(--agv); color: var(--agv); font-weight: 600; }
+button.tug { border-color: var(--tug); color: var(--tug); font-weight: 600; }
+.note { font-size: 13px; color: var(--muted); margin: 10px 0 0; overflow-wrap: anywhere; }
+.warnbox { font-size: 13px; padding: 8px 10px; border-radius: 7px; background: color-mix(in srgb, var(--accent) 14%, transparent); margin-top: 10px; }
+.errbox { font-size: 13px; padding: 8px 10px; border-radius: 7px; background: color-mix(in srgb, var(--bad) 14%, transparent); margin-top: 10px; }
+.hidden { display: none !important; }
+/* scoreboard */
+.score-top { display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; }
+.score { font-size: 46px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.phase { font-size: 13px; padding: 3px 10px; border-radius: 999px; background: var(--chip); }
+.phase.shift { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+.mult { font-size: 22px; font-weight: 700; color: var(--accent); }
+.bar { height: 6px; background: var(--chip); border-radius: 3px; overflow: hidden; margin: 12px 0 4px; }
+.bar > div { height: 100%; background: var(--accent); width: 0; transition: width .3s linear; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; margin: 12px 0; }
+.tile { background: var(--bg); border-radius: 8px; padding: 8px 10px; }
+.tile .k { font-size: 11px; color: var(--muted); } .tile .v { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.events { list-style: none; margin: 10px 0 0; padding: 0; font-size: 13px; max-height: 170px; overflow: auto; }
+.events li { padding: 4px 0; border-top: 1px dashed var(--line); display: flex; gap: 8px; }
+.events .pts { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; }
+.events .good .pts { color: var(--good); } .events .bad .pts { color: var(--bad); }
+.events .big { font-weight: 700; }
+.results { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); font-size: 14px; }
+/* arms */
+.arms { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.arm { background: var(--bg); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.arm .role { font-size: 12px; color: var(--muted); }
+.arm .port { font: 600 15px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.arm .sn { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.wizard { margin-top: 12px; border: 1px dashed var(--accent); border-radius: 8px; padding: 12px; }
+.wizard .step { font-size: 16px; font-weight: 700; }
+.wizard ul { margin: 8px 0 0; padding-left: 18px; font: 13px ui-monospace, Menlo, Consolas, monospace; color: var(--muted); }
+.pulse { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); margin-right: 8px; animation: p 1s infinite; }
+@keyframes p { 50% { opacity: .25; } }
+/* console */
+.console-card { grid-column: 1 / -1; }
+pre#log {
+  margin: 0; height: 300px; overflow: auto; background: var(--console); color: var(--console-ink);
+  border-radius: 8px; padding: 10px 12px; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, "Microsoft YaHei", monospace;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.console-input { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.console-input input { flex: 1 1 220px; }
+.jobline { font-size: 13px; color: var(--muted); }
+@media (max-width: 900px) {
+  main { grid-template-columns: minmax(0, 1fr); padding: 12px 16px 20px; }
+  header { padding: 12px 16px; }
+  .badges { margin-left: 0; }
+  .tabs { grid-template-columns: repeat(2, 1fr); }
+  .arms { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="stripe"></span>孪生仓控制台 <small>SO-101 Twin Depot</small></div>
+  <div class="badges" id="badges"></div>
+</header>
+
+<main>
+  <div class="col">
+    <section class="card" id="play-card">
+      <h2>开始一班 <span class="sub">游戏窗口会在桌面上弹出</span></h2>
+      <div class="tabs" role="group" aria-label="模式">
+        <button class="tab" data-mode="demo" aria-pressed="true"><b>演示</b><span>自动驾驶，不接硬件</span></button>
+        <button class="tab" data-mode="real" aria-pressed="false"><b>真机遥操作</b><span>主臂带从臂</span></button>
+        <button class="tab" data-mode="leader" aria-pressed="false"><b>只用主臂</b><span>孪生当从臂</span></button>
+        <button class="tab" data-mode="udp" aria-pressed="false"><b>远程接收</b><span>臂在别的电脑上</span></button>
+      </div>
+      <div class="grid2">
+        <label class="f">难度
+          <select id="o-difficulty"><option value="chill">轻松</option><option value="normal" selected>普通</option><option value="hard">困难</option></select>
+        </label>
+        <label class="f">班次时长（秒）<input type="number" id="o-shift" value="150" min="30" max="900" step="10"></label>
+        <label class="f">场景
+          <select id="o-hall"><option value="auto">自动</option><option value="isaac">Isaac 仓库</option><option value="builtin">内置夜班大厅</option></select>
+        </label>
+        <label class="f">玩家名<input type="text" id="o-player" placeholder="排行榜上显示的名字"></label>
+        <label class="f only-real">安全限幅（每步，空=不限）<input type="number" id="o-maxrel" placeholder="建议首次填 10" min="1" max="100"></label>
+        <label class="f only-udp">监听端口<input type="number" id="o-udpport" value="5566" min="1" max="65535"></label>
+      </div>
+      <div class="toggles">
+        <label><input type="checkbox" id="o-assist" checked> 磁吸辅助</label>
+        <label><input type="checkbox" id="o-hints" checked> 目标提示</label>
+        <label><input type="checkbox" id="o-shadows" checked> 阴影</label>
+      </div>
+      <div class="warnbox only-real">真机模式会让<b>真实从臂运动</b>。开始前清空从臂周围；第一次建议填“安全限幅”。</div>
+      <div class="warnbox hidden" id="port-guess-warn">端口还没识别过，现在用的是猜测值。先在右边点“自动识别端口”。</div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary big" id="start-btn">开始</button>
+        <span class="note" id="start-note" style="margin:0"></span>
+      </div>
+    </section>
+
+    <section class="card hidden" id="live-card" aria-live="polite">
+      <h2>当前这一班 <span class="sub" id="live-sub"></span></h2>
+      <div class="score-top">
+        <div class="score" id="s-score">0</div>
+        <div class="mult" id="s-mult"></div>
+        <div class="phase" id="s-phase">—</div>
+        <div class="note" id="s-time" style="margin:0 0 4px auto"></div>
+      </div>
+      <div class="bar"><div id="s-bar"></div></div>
+      <div class="tiles">
+        <div class="tile"><div class="k">分对</div><div class="v" id="s-sorted">0</div></div>
+        <div class="tile"><div class="k">分错</div><div class="v" id="s-errors">0</div></div>
+        <div class="tile"><div class="k">漏拣</div><div class="v" id="s-missed">0</div></div>
+        <div class="tile"><div class="k">准确率</div><div class="v" id="s-acc">—</div></div>
+        <div class="tile"><div class="k">排队</div><div class="v" id="s-queue">0</div></div>
+        <div class="tile"><div class="k">回收笼</div><div class="v" id="s-cage">0/4</div></div>
+      </div>
+      <div class="row">
+        <button class="btn primary" data-cmd="start" id="c-start">开工</button>
+        <button class="btn agv" data-cmd="c">呼叫 AGV <span id="s-agv" class="note" style="margin:0"></span></button>
+        <button class="btn tug" data-cmd="t">呼叫牵引车 <span id="s-tug" class="note" style="margin:0"></span></button>
+        <button class="btn" data-cmd="a" id="c-assist">磁吸辅助</button>
+        <button class="btn" data-cmd="h" id="c-hints">提示</button>
+        <button class="btn" data-cmd="r">清场</button>
+        <button class="btn danger" id="c-stop">结束</button>
+      </div>
+      <div class="results hidden" id="s-results"></div>
+      <ul class="events" id="s-events"></ul>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card">
+      <h2>机械臂 <span class="sub" id="cfg-path"></span></h2>
+      <div class="arms">
+        <div class="arm"><div class="role">主臂 leader</div><div class="port" id="a-leader">—</div><div class="sn" id="a-leader-sn"></div></div>
+        <div class="arm"><div class="role">从臂 follower</div><div class="port" id="a-follower">—</div><div class="sn" id="a-follower-sn"></div></div>
+      </div>
+      <div id="port-notes"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" id="wiz-btn">自动识别端口</button>
+        <button class="btn" id="calib-follower">标定从臂</button>
+        <button class="btn" id="calib-leader">标定主臂</button>
+      </div>
+      <div class="wizard hidden" id="wizard">
+        <div class="step"><span class="pulse"></span><span id="wiz-step"></span></div>
+        <div class="note" id="wiz-detail"></div>
+        <ul id="wiz-ports"></ul>
+        <div class="row" style="margin-top:10px"><button class="btn" id="wiz-cancel">取消</button></div>
+      </div>
+      <details style="margin-top:14px">
+        <summary style="cursor:pointer;font-size:14px">设置：机械臂 id、型号、玩家名</summary>
+        <div class="grid2" style="margin-top:10px">
+          <label class="f">主臂 id<input type="text" id="c-leader_id"></label>
+          <label class="f">从臂 id<input type="text" id="c-follower_id"></label>
+          <label class="f">型号<select id="c-arm"><option value="so101">SO-101</option><option value="so100">SO-100</option></select></label>
+          <label class="f">默认玩家名<input type="text" id="c-player"></label>
+          <label class="f">主臂端口（手填）<input type="text" id="c-leader_port"></label>
+          <label class="f">从臂端口（手填）<input type="text" id="c-follower_port"></label>
+        </div>
+        <p class="note">id 要和标定时用的一致。手填端口会清掉记住的 USB 序列号。</p>
+        <div class="row"><button class="btn" id="cfg-save">保存设置</button><span class="note" id="cfg-saved" style="margin:0"></span></div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>工具</h2>
+      <div class="row">
+        <button class="btn" data-job="setup">安装 / 更新环境</button>
+        <button class="btn" data-job="doctor">体检</button>
+        <button class="btn" data-job="import-isaac">导入 Isaac 仓库</button>
+        <button class="btn" data-job="tests">运行测试</button>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <label class="f" style="flex:1;min-width:160px">推流到仿真机（本机接着机械臂时）<input type="text" id="stream-host" placeholder="仿真机 IP，例如 192.168.1.50"></label>
+        <button class="btn" id="stream-btn" style="align-self:flex-end">开始推流</button>
+      </div>
+      <p class="note" id="env-note"></p>
+    </section>
+  </div>
+
+  <section class="card console-card">
+    <h2>输出 <span class="sub jobline" id="jobline">空闲</span></h2>
+    <pre id="log" tabindex="0"></pre>
+    <div class="console-input">
+      <input type="text" id="stdin" placeholder="给正在运行的程序输入（标定时按提示操作，然后点“回车”）" autocomplete="off">
+      <button class="btn" id="enter-btn">回车</button>
+      <button class="btn danger" id="stop-btn">停止</button>
+      <button class="btn" id="quit-btn" title="关闭这个控制台的后台程序">关闭控制台</button>
+    </div>
+  </section>
+</main>
+
+<script>
+const TOKEN = "__TWIN_TOKEN__";
+const PLAY = ["demo", "real", "leader", "udp", "replay"];
+const JOB_ZH = { demo: "演示", real: "真机遥操作", leader: "只用主臂", udp: "远程接收", replay: "回放", setup: "安装环境",
+  calibrate: "标定", doctor: "体检", tests: "测试", "import-isaac": "导入 Isaac 仓库", stream: "推流" };
+const PHASE_ZH = { lobby: "等待开工（双捏夹爪或点“开工”）", sync: "对齐姿态", countdown: "倒计时", shift: "上班中",
+  paused: "暂停（姿态没对上）", ready: "准备", results: "结算" };
+const DIFF_ZH = { chill: "轻松", normal: "普通", hard: "困难" };
+const VEH_ZH = { to_racks: "去装货", loading: "装货中", ready: "装好了", delivering: "送货中", unloading: "卸货中",
+  parked: "待命", busy: "忙", returning: "返回中" };
+const $ = (id) => document.getElementById(id);
+let state = null, mode = "demo", logNext = 0, logText = "", lastJobStarted = null, cfgFilled = false;
+
+async function api(path, body) {
+  const opt = { headers: { "X-Twin-Token": TOKEN } };
+  if (body !== undefined) { opt.method = "POST"; opt.body = JSON.stringify(body); opt.headers["Content-Type"] = "application/json"; }
+  const r = await fetch(path, opt);
+  return r.json();
+}
+function flash(el, text, bad) { el.textContent = text; el.style.color = bad ? "var(--bad)" : ""; }
+
+// ------------------------------------------------------------------ mode tabs + options
+document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
+  mode = t.dataset.mode;
+  document.querySelectorAll(".tab").forEach((x) => x.setAttribute("aria-pressed", String(x === t)));
+  renderMode();
+}));
+function renderMode() {
+  document.querySelectorAll(".only-real").forEach((e) => e.classList.toggle("hidden", mode !== "real"));
+  document.querySelectorAll(".only-udp").forEach((e) => e.classList.toggle("hidden", mode !== "udp"));
+  const guess = state && !state.ports.configured && (mode === "real" || mode === "leader");
+  $("port-guess-warn").classList.toggle("hidden", !guess);
+}
+function playArgs() {
+  const a = ["--difficulty", $("o-difficulty").value, "--shift", String(Number($("o-shift").value) || 150), "--hall", $("o-hall").value];
+  if ($("o-player").value.trim()) a.push("--player", $("o-player").value.trim());
+  if (!$("o-assist").checked) a.push("--no-assist");
+  if (!$("o-hints").checked) a.push("--no-hints");
+  a.push($("o-shadows").checked ? "--shadows" : "--no-shadows");
+  if (mode === "real" && $("o-maxrel").value) a.push("--max-relative-target", String(Number($("o-maxrel").value)));
+  if (mode === "udp") a.push("--udp-port", String(Number($("o-udpport").value) || 5566));
+  return a;
+}
+async function runJob(cmd, args, noteEl) {
+  const r = await api("/api/run", { cmd, args: args || [] });
+  if (!r.ok) { flash(noteEl || $("start-note"), r.error, true); return false; }
+  if (noteEl) flash(noteEl, "");
+  logNext = 0; logText = ""; $("log").textContent = "";
+  refresh();
+  return true;
+}
+$("start-btn").addEventListener("click", () => runJob(mode, playArgs(), $("start-note")));
+document.querySelectorAll("[data-job]").forEach((b) => b.addEventListener("click", () => runJob(b.dataset.job, [], $("env-note"))));
+$("calib-follower").addEventListener("click", () => runJob("calibrate", ["follower"], $("env-note")));
+$("calib-leader").addEventListener("click", () => runJob("calibrate", ["leader"], $("env-note")));
+$("stream-btn").addEventListener("click", () => {
+  const host = $("stream-host").value.trim();
+  if (!host) return flash($("env-note"), "先填仿真机的 IP", true);
+  runJob("stream", ["--twin-host", host], $("env-note"));
+});
+
+// ------------------------------------------------------------------ live game controls
+document.querySelectorAll("[data-cmd]").forEach((b) => b.addEventListener("click", () => api("/api/input", { line: b.dataset.cmd })));
+$("c-stop").addEventListener("click", () => api("/api/stop", {}));
+$("stop-btn").addEventListener("click", () => api("/api/stop", {}));
+function sendStdin() { const v = $("stdin").value; $("stdin").value = ""; api("/api/input", { line: v }); }
+$("enter-btn").addEventListener("click", sendStdin);
+$("stdin").addEventListener("keydown", (e) => { if (e.key === "Enter") sendStdin(); });
+$("quit-btn").addEventListener("click", async () => {
+  if (!confirm("关闭控制台？正在运行的程序也会停止。")) return;
+  await api("/api/shutdown", {});
+  document.body.innerHTML = '<p style="padding:40px;font-size:18px">控制台已关闭。重新打开：双击 twin.bat / twin.command，或运行 ./twin.sh。</p>';
+});
+
+// ------------------------------------------------------------------ settings
+const CFG_KEYS = ["leader_id", "follower_id", "arm", "player", "leader_port", "follower_port"];
+$("cfg-save").addEventListener("click", async () => {
+  const u = {};
+  CFG_KEYS.forEach((k) => (u[k] = $("c-" + k).value.trim()));
+  if (u.leader_port !== state.config.leader_port) u.leader_serial = "";
+  if (u.follower_port !== state.config.follower_port) u.follower_serial = "";
+  const r = await api("/api/config", { updates: u });
+  flash($("cfg-saved"), r.ok ? "已保存" : r.error, !r.ok);
+  cfgFilled = false; refresh();
+});
+
+// ------------------------------------------------------------------ port wizard (unplug / replug, detected automatically)
+let wiz = null, wizTimer = null;
+const usbSet = (ports) => new Set(ports.filter((p) => p.usb).map((p) => p.device));
+const ROLE_ZH = { leader: "主臂", follower: "从臂" };
+async function wizPoll() {
+  const r = await api("/api/ports");
+  if (!wiz) return;
+  if (!r.ok) { $("wiz-step").textContent = r.error; return; }
+  const now = usbSet(r.ports);
+  wiz.ports = r.ports;
+  $("wiz-ports").innerHTML = [...now].sort().map((d) => {
+    const p = r.ports.find((x) => x.device === d);
+    return `<li>${d}${p.serial ? "  SN " + p.serial : ""}${p.hint ? "  ⚠ " + p.hint : ""}</li>`;
+  }).join("") || "<li>（没有 USB 串口）</li>";
+  const role = wiz.role;
+  if (wiz.stage === "start") {
+    if (now.size === 0) return setWiz("先把两只臂的 USB 线插上并通电", "插好后这里会自动继续。");
+    wiz.baseline = now; wiz.stage = "unplug";
+  }
+  if (wiz.stage === "unplug") {
+    const gone = [...wiz.baseline].filter((d) => !now.has(d));
+    const added = [...now].filter((d) => !wiz.baseline.has(d));
+    if (added.length) wiz.baseline = now;
+    if (gone.length === 1) { wiz.remaining = now; wiz.stage = "replug"; wiz.gone = gone[0]; }
+    else if (gone.length > 1) { wiz.baseline = now; return setWiz("一次只拔一只臂", "检测到多个串口同时消失，请都插回去再试。"); }
+    else return setWiz(`拔掉${ROLE_ZH[role]}的 USB 线`, "拔掉后会自动检测，不用点任何按钮。");
+  }
+  if (wiz.stage === "replug") {
+    const back = [...now].filter((d) => !wiz.remaining.has(d));
+    if (back.length !== 1) return setWiz(`${ROLE_ZH[role]}是 ${wiz.gone}，现在把它插回去`, "插回后自动继续（有的系统插回后串口名会变，以插回后的为准）。");
+    wiz.found[role] = back[0];
+    const others = [...now].filter((d) => d !== back[0] && !Object.values(wiz.found).includes(d));
+    if (role === "leader" && others.length === 1) wiz.found.follower = others[0];
+    else if (role === "leader") { wiz.role = "follower"; wiz.stage = "unplug"; wiz.baseline = now; return wizPoll(); }
+    return wizSave();
+  }
+}
+function setWiz(step, detail) { $("wiz-step").textContent = step; $("wiz-detail").textContent = detail || ""; }
+async function wizSave() {
+  const ports = wiz.ports.filter((p) => p.usb);
+  const sn = (dev) => {
+    const s = (ports.find((p) => p.device === dev) || {}).serial || "";
+    return s && ports.filter((p) => p.serial === s).length === 1 ? s : "";
+  };
+  const f = wiz.found;
+  const u = { leader_port: f.leader, follower_port: f.follower, leader_serial: sn(f.leader), follower_serial: sn(f.follower) };
+  stopWiz();
+  const r = await api("/api/config", { updates: u });
+  const both = u.leader_serial && u.follower_serial;
+  $("port-notes").innerHTML = r.ok
+    ? `<div class="${both ? "note" : "warnbox"}">已识别：主臂 ${u.leader_port}，从臂 ${u.follower_port}。` +
+      (both ? "已记住两块驱动板的序列号，换 USB 口也能自动找回。" : "有驱动板没有唯一序列号，只能按端口名记；换了 USB 口要重新识别。") + "</div>"
+    : `<div class="errbox">${r.error}</div>`;
+  cfgFilled = false; refresh();
+}
+function stopWiz() { wiz = null; clearInterval(wizTimer); $("wizard").classList.add("hidden"); }
+$("wiz-btn").addEventListener("click", () => {
+  wiz = { stage: "start", role: "leader", found: {}, ports: [] };
+  $("wizard").classList.remove("hidden");
+  setWiz("正在读取串口…");
+  clearInterval(wizTimer); wizTimer = setInterval(wizPoll, 600); wizPoll();
+});
+$("wiz-cancel").addEventListener("click", stopWiz);
+
+// ------------------------------------------------------------------ rendering
+function badge(text, ok) { return `<span class="badge ${ok ? "ok" : "warn"}">${text}</span>`; }
+function render() {
+  const s = state;
+  $("badges").innerHTML = [
+    badge(s.os, true),
+    badge(s.env_python ? "环境就绪" : "未安装环境", !!s.env_python),
+    badge(s.isaac ? "Isaac 仓库已导入" : "内置大厅", s.isaac),
+    badge(s.ports.configured ? "端口已识别" : "端口未识别", s.ports.configured),
+  ].join("");
+  $("cfg-path").textContent = s.config_path;
+  $("a-leader").textContent = s.ports.leader;
+  $("a-follower").textContent = s.ports.follower;
+  const tag = (role) => s.config[role + "_serial"] ? "SN " + s.config[role + "_serial"] : (s.config[role + "_port"] ? "按端口名记住" : "猜测值");
+  $("a-leader-sn").textContent = tag("leader");
+  $("a-follower-sn").textContent = tag("follower");
+  if (!wiz && s.port_notes.length) $("port-notes").innerHTML = s.port_notes.map((n) => `<div class="warnbox">${n}</div>`).join("");
+  if (!cfgFilled) { CFG_KEYS.forEach((k) => ($("c-" + k).value = s.config[k] || "")); if (!$("o-player").value) $("o-player").value = s.config.player || ""; cfgFilled = true; }
+  $("env-note").textContent = s.env_python ? "环境：" + s.env_python : "第一次使用：先点“安装 / 更新环境”（会下载 LeRobot、MuJoCo 和 Isaac 仓库，需要几分钟）。";
+  const job = s.job, running = job && job.running;
+  $("jobline").textContent = job ? `${JOB_ZH[job.name] || job.name} · ${running ? "运行中" : "已结束（退出码 " + job.rc + "）"}` : "空闲";
+  $("start-btn").disabled = !!running || !s.env_python;
+  document.querySelectorAll("[data-job]").forEach((b) => (b.disabled = !!running || (!s.env_python && b.dataset.job !== "setup")));
+  ["calib-follower", "calib-leader", "stream-btn"].forEach((id) => ($(id).disabled = !!running || !s.env_python));
+  $("stop-btn").disabled = !running;
+  if (job && job.name === "calibrate" && running) $("stdin").placeholder = "标定：按输出里的提示摆好姿态，然后点“回车”";
+  renderMode();
+  renderLive(running && PLAY.includes(job.name) ? s.status : null, running && PLAY.includes(job.name));
+}
+function renderLive(st, playing) {
+  $("live-card").classList.toggle("hidden", !playing);
+  if (!playing) return;
+  if (!st) { $("s-phase").textContent = "正在加载场景…"; return; }
+  $("live-sub").textContent = `${st.hall === "isaac" ? "Isaac 仓库" : "内置大厅"} · ${DIFF_ZH[st.difficulty] || st.difficulty} · ${st.source === "autopilot" ? "自动驾驶" : st.source}`;
+  $("s-score").textContent = st.score;
+  $("s-mult").textContent = st.multiplier > 1 ? "×" + st.multiplier : "";
+  $("s-phase").textContent = PHASE_ZH[st.phase] || st.phase;
+  $("s-phase").className = "phase " + st.phase;
+  const left = Math.max(0, st.time_left);
+  $("s-time").textContent = st.phase === "shift" || st.phase === "paused" ? `剩余 ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, "0")}` : "";
+  $("s-bar").style.width = (100 * (1 - left / Math.max(1, st.shift_s))).toFixed(1) + "%";
+  $("s-sorted").textContent = st.sorted; $("s-errors").textContent = st.errors; $("s-missed").textContent = st.missed;
+  $("s-acc").textContent = st.accuracy == null ? "—" : st.accuracy + "%";
+  $("s-queue").textContent = st.queue; $("s-cage").textContent = `${st.cage}/${st.cage_capacity}`;
+  $("s-agv").textContent = "· " + (VEH_ZH[st.agv] || st.agv);
+  $("s-tug").textContent = "· " + (VEH_ZH[st.tug] || st.tug);
+  $("c-assist").textContent = "磁吸辅助：" + (st.assist ? "开" : "关");
+  $("c-hints").textContent = "提示：" + (st.hints ? "开" : "关");
+  $("c-start").classList.toggle("hidden", st.mode !== "live");
+  const r = st.results;
+  $("s-results").classList.toggle("hidden", !r);
+  if (r) $("s-results").innerHTML = `<b>结算：${r.score} 分 · 评级 ${r.rank}（${r.title_zh}）</b><br>准确率 ${r.accuracy}% · 最大连击 ${r.max_combo} · 漏拣 ${r.missed} · 摔地 ${r.spilled}${r.place ? " · 排行榜第 " + r.place : ""}`;
+  $("s-events").innerHTML = st.events.slice().reverse().map((e) =>
+    `<li class="${e.kind}"><span>${escapeHtml(e.text)}</span>${e.points ? `<span class="pts">${e.points > 0 ? "+" : ""}${e.points}</span>` : ""}</li>`).join("");
+}
+function escapeHtml(t) { return String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+
+// terminal output: strip colour codes, honour carriage returns (progress bars)
+const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
+function cleanLog(t) {
+  return t.replace(ANSI, "").split("\n").map((l) => { const i = l.lastIndexOf("\r"); return i >= 0 ? l.slice(i + 1) : l; }).join("\n");
+}
+async function pollLog() {
+  try {
+    const r = await api("/api/log?since=" + logNext);
+    if (r.reset) { logText = ""; }
+    if (r.text) {
+      logText = (logText + r.text).slice(-200000);
+      const el = $("log"), atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      el.textContent = cleanLog(logText);
+      if (atBottom) el.scrollTop = el.scrollHeight;
+    }
+    logNext = r.next;
+  } catch (e) { /* server closed */ }
+}
+async function refresh() {
+  try {
+    state = await api("/api/state");
+    if (state.job && state.job.started !== lastJobStarted) { lastJobStarted = state.job.started; }
+    render();
+  } catch (e) {
+    $("jobline").textContent = "控制台后台已断开";
+  }
+}
+renderMode();
+refresh(); pollLog();
+setInterval(refresh, 700);
+setInterval(pollLog, 400);
+</script>
+</body>
+</html>

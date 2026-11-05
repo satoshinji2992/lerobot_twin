@@ -62,6 +62,8 @@ COMMANDS = {
     "tests": "run the test suite",
     "config": "show settings, or set them: twin config leader_id=alice player=Sam",
     "doctor": "check this machine: Python, MuJoCo, OpenGL window, serial ports, Isaac assets",
+    "ui": "web control panel in the browser (the default with no command; --port N, --no-browser)",
+    "menu": "the same choices as a terminal menu",
 }
 MENU = ["demo", "real", "leader", "ports", "calibrate", "setup", "doctor", "tests"]
 
@@ -415,8 +417,34 @@ def menu() -> list[str] | None:
     return [choice] if choice in COMMANDS else None
 
 
+def cmd_ui(rest: list[str]) -> None:
+    import time
+
+    from twin_depot import webui
+
+    ap = argparse.ArgumentParser(prog="twin ui")
+    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--no-browser", action="store_true")
+    a = ap.parse_args(rest)
+    cache = {"py": None, "t": -1e9}
+
+    def cached_env_python() -> str | None:  # polled every second: conda lookups are slow
+        age = time.monotonic() - cache["t"]
+        if age > 15 or (cache["py"] is None and age > 3):
+            cache["py"], cache["t"] = env_python(), time.monotonic()
+        return cache["py"]
+
+    webui.serve(Path(__file__).resolve(), cached_env_python, port=a.port, open_browser=not a.no_browser)
+
+
 def main(argv: list[str]) -> None:
-    from_menu = not argv
+    if not argv:
+        argv = ["ui"]
+    if argv[0] == "ui":
+        if not os.environ.get(IN_ENV) and env_python():
+            enter_env(argv)  # the panel itself reads serial ports: run it inside the environment
+        return cmd_ui(argv[1:])
+    from_menu = argv[0] == "menu"
     if from_menu:
         argv = menu() or []
         if not argv:

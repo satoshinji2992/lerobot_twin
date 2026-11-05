@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import getpass
+import json
 import logging
 import os
 import queue
@@ -128,6 +130,12 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--find-ports",
         action="store_true",
         help="unplug/replug each arm to identify its serial port, save to config.ini and exit",
+    )
+    p.add_argument(
+        "--status-file", type=Path, default=None, help="keep a JSON snapshot of the shift here (web panel)"
+    )
+    p.add_argument(
+        "--stdin", action="store_true", help="read game commands from stdin even when it is not a terminal"
     )
     p.add_argument("--headless", action="store_true", help="no window (tests / benchmarks)")
     p.add_argument("--duration", type=float, default=None, help="stop after this many simulated seconds")
@@ -312,6 +320,9 @@ class Session:
         self._last_sample_stamp = None
         self._last_phase = self.game.phase
         self.commands: queue.SimpleQueue[str] = queue.SimpleQueue()  # from key/stdin threads
+        self.status_path: Path | None = args.status_file
+        self._status_events: collections.deque = collections.deque(maxlen=12)
+        self._status_next = 0.0
 
     def start(self) -> None:
         if self.source is not None:
@@ -353,10 +364,61 @@ class Session:
             mujoco.mj_step(self.m, self.d)
         g.post_step(self.frame_dt)
         events = g.pop_events()
+        if self.status_path is not None:
+            self._write_status(events)
         if src is not None:
             for ev in events:
                 src.send_event({"kind": ev.kind, "text": ev.text, "zh": ev.zh, "points": ev.points})
         return events
+
+    def status(self) -> dict:
+        g = self.game
+        st, r = g.stats, g.results
+        total = st.sorted_ok + st.errors
+        return {
+            "t": round(g.t, 2),
+            "hall": self.hall,
+            "mode": g.mode,
+            "phase": g.phase,
+            "time_left": round(g.time_left, 1),
+            "shift_s": g.shift_s,
+            "difficulty": g.difficulty,
+            "score": st.score,
+            "combo": st.combo,
+            "multiplier": st.multiplier,
+            "sorted": st.sorted_ok,
+            "errors": st.errors,
+            "missed": st.missed,
+            "spilled": st.spilled,
+            "accuracy": round(100.0 * st.sorted_ok / total, 1) if total else None,
+            "queue": len(g.queue()),
+            "cage": g.cage_count,
+            "cage_capacity": layout.CAGE.capacity,
+            "agv": g.fleet.state["agv"],
+            "tug": g.fleet.state["tug"],
+            "assist": g.assist,
+            "hints": g.hints,
+            "source": g.tele.source,
+            "rate_hz": round(g.tele.rate_hz, 1),
+            "results": r,
+            "events": list(self._status_events),
+        }
+
+    def _write_status(self, events) -> None:
+        for ev in events:
+            self._status_events.append(
+                {"t": round(ev.t, 1), "kind": ev.kind, "text": ev.zh or ev.text, "points": ev.points}
+            )
+        now = time.monotonic()
+        if now < self._status_next and not events:
+            return
+        self._status_next = now + 0.25
+        tmp = self.status_path.with_name(self.status_path.name + ".tmp")
+        try:
+            tmp.write_text(json.dumps(self.status(), ensure_ascii=False, default=str), encoding="utf-8")
+            os.replace(tmp, self.status_path)
+        except OSError:  # Windows: the panel may be reading it right now; next frame will do
+            pass
 
 
 def _stdin_commands(commands: queue.SimpleQueue) -> None:
@@ -402,7 +464,7 @@ def run_viewer(sess: Session) -> None:
         if key in keymap:
             sess.commands.put(keymap[key])
 
-    if sys.stdin.isatty():
+    if sys.stdin.isatty() or sess.args.stdin:
         threading.Thread(target=_stdin_commands, args=(sess.commands,), daemon=True).start()
     with mujoco.viewer.launch_passive(
         sess.m, sess.d, key_callback=on_key, show_left_ui=False, show_right_ui=False
