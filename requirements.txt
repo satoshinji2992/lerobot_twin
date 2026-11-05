@@ -1,0 +1,7 @@
+# `python twin.py setup` installs all of this for you. Manual install: pip install -r requirements.txt
+mujoco>=3.2
+numpy
+pillow
+lerobot[feetech]>=0.4.4   # real arms (leader/follower); the demo runs without it
+usd-core                  # only for import_isaac_scene.py (the Isaac Sim warehouse backdrop)
+pytest

@@ -1,0 +1,4 @@
+# keep the launchers runnable after a checkout on any OS
+*.bat text eol=crlf
+*.sh text eol=lf
+twin.py text eol=lf

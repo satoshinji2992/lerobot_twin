@@ -1,0 +1,71 @@
+"""Download and verify the official SO-101 MuJoCo model (TheRobotStudio/SO-ARM100, Apache-2.0).
+
+Files are pinned to one commit and checked against SHA256 hashes, so the twin always
+uses exactly the kinematics/actuator parameters it was tuned against.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import urllib.request
+from pathlib import Path
+
+REPO = "TheRobotStudio/SO-ARM100"
+COMMIT = "5f6d2b876a53a4872e405b991dd925556c9e38a4"
+BASE_URL = f"https://raw.githubusercontent.com/{REPO}/{COMMIT}"
+
+ASSET_DIR = Path(__file__).resolve().parents[1] / "assets" / "so101"
+MJCF_NAME = "so101_new_calib.xml"
+
+# repo-relative path -> sha256
+FILES: dict[str, str] = {
+    "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "Simulation/SO101/so101_new_calib.xml": "d75253eb568e8a7214db9c631ab7bed4217f608a26f7276ebe9a7636cac82580",
+    "Simulation/SO101/assets/base_motor_holder_so101_v1.stl": "8cd2f241037ea377af1191fffe0dd9d9006beea6dcc48543660ed41647072424",
+    "Simulation/SO101/assets/base_so101_v2.stl": "bb12b7026575e1f70ccc7240051f9d943553bf34e5128537de6cd86fae33924d",
+    "Simulation/SO101/assets/motor_holder_so101_base_v1.stl": "31242ae6fb59d8b15c66617b88ad8e9bded62d57c35d11c0c43a70d2f4caa95b",
+    "Simulation/SO101/assets/motor_holder_so101_wrist_v1.stl": "887f92e6013cb64ea3a1ab8675e92da1e0beacfd5e001f972523540545e08011",
+    "Simulation/SO101/assets/moving_jaw_so101_v1.stl": "785a9dded2f474bc1d869e0d3dae398a3dcd9c0c345640040472210d2861fa9d",
+    "Simulation/SO101/assets/rotation_pitch_so101_v1.stl": "9be900cc2a2bf718102841ef82ef8d2873842427648092c8ed2ca1e2ef4ffa34",
+    "Simulation/SO101/assets/sts3215_03a_no_horn_v1.stl": "75ef3781b752e4065891aea855e34dc161a38a549549cd0970cedd07eae6f887",
+    "Simulation/SO101/assets/sts3215_03a_v1.stl": "a37c871fb502483ab96c256baf457d36f2e97afc9205313d9c5ab275ef941cd0",
+    "Simulation/SO101/assets/under_arm_so101_v1.stl": "d01d1f2de365651dcad9d6669e94ff87ff7652b5bb2d10752a66a456a86dbc71",
+    "Simulation/SO101/assets/upper_arm_so101_v1.stl": "475056e03a17e71919b82fd88ab9a0b898ab50164f2a7943652a6b2941bb2d4f",
+    "Simulation/SO101/assets/waveshare_mounting_plate_so101_v2.stl": "e197e24005a07d01bbc06a8c42311664eaeda415bf859f68fa247884d0f1a6e9",
+    "Simulation/SO101/assets/wrist_roll_follower_so101_v1.stl": "4b17b410a12d64ec39554abc3e8054d8a97384b2dc4a8d95a5ecb2a93670f5f4",
+    "Simulation/SO101/assets/wrist_roll_pitch_so101_v2.stl": "6c7ec5525b4d8b9e397a30ab4bb0037156a5d5f38a4adf2c7d943d6c56eda5ae",
+}
+
+
+def _local_path(repo_path: str) -> Path:
+    if repo_path == "LICENSE":
+        return ASSET_DIR / "LICENSE"
+    return ASSET_DIR / repo_path.removeprefix("Simulation/SO101/")
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def ensure_so101_assets(verbose: bool = True) -> Path:
+    """Make sure the pinned SO-101 MJCF + meshes exist locally. Returns the MJCF path."""
+    for repo_path, digest in FILES.items():
+        dst = _local_path(repo_path)
+        if dst.exists() and _sha256(dst) == digest:
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        url = f"{BASE_URL}/{repo_path}"
+        if verbose:
+            print(f"[assets] downloading {repo_path}")
+        with urllib.request.urlopen(url, timeout=60) as resp:  # noqa: S310 - fixed https URL
+            payload = resp.read()
+        if hashlib.sha256(payload).hexdigest() != digest:
+            raise RuntimeError(f"SHA256 mismatch for {url}; refusing to use it.")
+        tmp = dst.with_suffix(dst.suffix + ".part")
+        tmp.write_bytes(payload)
+        tmp.replace(dst)
+    return ASSET_DIR / MJCF_NAME
+
+
+if __name__ == "__main__":
+    print(ensure_so101_assets())

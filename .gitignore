@@ -1,0 +1,18 @@
+# downloaded at first run (pinned + SHA256-checked, Apache-2.0, TheRobotStudio/SO-ARM100)
+assets/so101/
+# NVIDIA Isaac Sim warehouse: downloaded + converted by import_isaac_scene.py (NVIDIA asset license)
+assets/isaac/
+# generated scene XML + textures
+build/
+# leaderboard
+data/
+# session recordings
+runs/
+# per-machine: arm ports/ids (twin ports / twin config) and the environment twin setup made
+config.ini
+.twin-python
+.venv/
+# Python caches
+__pycache__/
+.pytest_cache/
+.ruff_cache/
