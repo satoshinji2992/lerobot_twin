@@ -252,7 +252,9 @@ def cmd_ports(rest: list[str]) -> None:
 
 def cmd_calibrate(rest: list[str]) -> None:
     cfg = system.load_config()
-    leader, follower, configured = system.arm_ports(cfg)
+    leader, follower, configured, notes = system.arm_ports(cfg)
+    for note in notes:
+        say(note)
     which = [r for r in rest if r in ("leader", "follower")] or ["follower", "leader"]
     extra = [r for r in rest if r not in ("leader", "follower")]
     if not configured:
@@ -294,7 +296,7 @@ def cmd_config(rest: list[str]) -> None:
         cfg = system.save_config(updates) if updates else system.load_config()
     except KeyError as e:
         sys.exit(f"[twin] {e.args[0]}")
-    leader, follower, _ = system.arm_ports(cfg)
+    leader, follower, _, _ = system.arm_ports(cfg)
     print(f"{system.CONFIG_PATH}{'' if system.CONFIG_PATH.exists() else '  (not written yet: defaults)'}")
     for k, v in cfg.items():
         shown = v or {"leader_port": f"(guess: {leader})", "follower_port": f"(guess: {follower})"}.get(
@@ -337,12 +339,14 @@ def cmd_doctor(rest: list[str]) -> None:
     line(
         True, "isaac hall", "imported" if available() else "not imported (built-in hall; `twin import-isaac`)"
     )
-    leader, follower, configured = system.arm_ports()
+    leader, follower, configured, notes = system.arm_ports()
     line(
         configured,
         "arm ports",
         f"leader={leader} follower={follower}" + ("" if configured else "  (guess: `twin ports`)"),
     )
+    for note in notes:
+        line(False, "arm ports", note)
     try:
         from twin_depot.app import _usb_ports
 

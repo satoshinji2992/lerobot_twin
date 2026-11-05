@@ -13,6 +13,7 @@ import platform
 import shutil
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 IS_WINDOWS = os.name == "nt"
 IS_MAC = sys.platform == "darwin"
@@ -26,6 +27,8 @@ SECTION = "twin"
 DEFAULTS = {
     "leader_port": "",  # empty = guess (see guess_ports); `twin ports` fills these in
     "follower_port": "",
+    "leader_serial": "",  # USB serial number of each servo board: finds the arm again after its
+    "follower_serial": "",  # port name changes (other USB socket, new COM number, reboot)
     "leader_id": "my_awesome_leader_arm",
     "follower_id": "my_awesome_follower_arm",
     "arm": "so101",
@@ -72,12 +75,50 @@ def guess_ports() -> tuple[str, str]:
     return found[0], found[1]
 
 
-def arm_ports(cfg: dict[str, str] | None = None) -> tuple[str, str, bool]:
-    """(leader, follower, configured): configured is False when either port is only a guess."""
-    cfg = cfg or load_config()
+class ArmPorts(NamedTuple):
+    leader: str
+    follower: str
+    configured: bool  # False when either port is only a guess
+    notes: list[str]  # e.g. "leader board moved COM5 -> COM7"
+
+
+def list_usb_serial() -> list | None:
+    """pyserial's USB serial ports, or None when pyserial isn't installed."""
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        return None
+    return [p for p in list_ports.comports() if p.hwid.upper().startswith("USB")]
+
+
+def resolve_ports(cfg: dict[str, str], present: list | None) -> ArmPorts:
+    """Saved serial number -> wherever that board is plugged in now; else the saved name; else a guess."""
     guess = guess_ports()
-    leader, follower = cfg["leader_port"] or guess[0], cfg["follower_port"] or guess[1]
-    return leader, follower, bool(cfg["leader_port"] and cfg["follower_port"])
+    by_serial: dict[str, list[str]] = {}
+    for p in present or []:
+        if p.serial_number:
+            by_serial.setdefault(p.serial_number, []).append(p.device)
+    ports, notes = {}, []
+    for role, fallback in (("leader", guess[0]), ("follower", guess[1])):
+        saved, serial = cfg[f"{role}_port"], cfg[f"{role}_serial"]
+        port = saved or fallback
+        if serial and present is not None:
+            found = by_serial.get(serial, [])
+            if len(found) == 1:
+                port = found[0]
+                if saved and port != saved:
+                    notes.append(f"{role} board (serial {serial}) moved {saved} -> {port}")
+            else:
+                notes.append(f"{role} board (serial {serial}) not plugged in - trying {port}")
+        ports[role] = port
+    configured = all(cfg[f"{r}_port"] or cfg[f"{r}_serial"] for r in ("leader", "follower"))
+    return ArmPorts(ports["leader"], ports["follower"], configured, notes)
+
+
+def arm_ports(cfg: dict[str, str] | None = None) -> ArmPorts:
+    cfg = cfg or load_config()
+    present = list_usb_serial() if (cfg["leader_serial"] or cfg["follower_serial"]) else None
+    return resolve_ports(cfg, present)
 
 
 def serial_permission_hint(port: str) -> str | None:

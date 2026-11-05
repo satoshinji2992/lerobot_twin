@@ -409,3 +409,47 @@ def test_macos_viewer_relaunches_under_mjpython(monkeypatch, tmp_path):
     system.ensure_viewer_process()  # under mjpython: nothing to do
     monkeypatch.setattr(system, "IS_MAC", False)
     system.ensure_viewer_process()
+
+
+def test_saved_serial_numbers_follow_the_boards_to_new_ports():
+    from twin_depot import system
+
+    def port(dev, sn):
+        return SimpleNamespace(device=dev, serial_number=sn, hwid=f"USB VID:PID=1A86:55D3 SER={sn}")
+
+    cfg = {**system.DEFAULTS, "leader_port": "COM5", "follower_port": "COM6",
+           "leader_serial": "5A7A0123", "follower_serial": "5A7A0456"}  # fmt: skip
+    same = system.resolve_ports(cfg, [port("COM5", "5A7A0123"), port("COM6", "5A7A0456")])
+    assert same == ("COM5", "COM6", True, [])
+    # re-plugged into other sockets and swapped COM numbers: still the right arms
+    moved = system.resolve_ports(cfg, [port("COM9", "5A7A0456"), port("COM8", "5A7A0123")])
+    assert (moved.leader, moved.follower) == ("COM8", "COM9") and len(moved.notes) == 2
+    # follower unplugged: keep its last known port and say so
+    gone = system.resolve_ports(cfg, [port("COM8", "5A7A0123")])
+    assert (gone.leader, gone.follower) == ("COM8", "COM6") and "not plugged in" in gone.notes[-1]
+    # boards without serial numbers fall back to the saved names; pyserial missing changes nothing
+    plain = {**cfg, "leader_serial": "", "follower_serial": ""}
+    assert system.resolve_ports(plain, [port("COM8", None)])[:3] == ("COM5", "COM6", True)
+    assert system.resolve_ports(cfg, None)[:3] == ("COM5", "COM6", True)
+    # two clones sharing one serial number are ambiguous: don't trust it
+    clones = system.resolve_ports(cfg, [port("COM8", "5A7A0123"), port("COM9", "5A7A0123")])
+    assert clones.leader == "COM5"
+
+
+def test_find_ports_records_serial_numbers(monkeypatch, tmp_path):
+    from twin_depot import app, system
+
+    monkeypatch.setattr(system, "CONFIG_PATH", tmp_path / "config.ini")
+    boards = {"leader": SimpleNamespace(device="/dev/ttyACM0", serial_number="AAA", hwid="USB VID:PID=1A86:55D3",
+                                        description="USB Single Serial"),
+              "follower": SimpleNamespace(device="/dev/ttyACM1", serial_number="BBB", hwid="USB VID:PID=1A86:55D3",
+                                          description="USB Single Serial")}  # fmt: skip
+    plugged = dict(boards)
+    script = iter([lambda: plugged.pop("leader"), lambda: plugged.update(leader=boards["leader"])])
+    monkeypatch.setattr(app, "_comports", lambda: list(plugged.values()))
+    monkeypatch.setattr("builtins.input", lambda *_: next(script)())
+    monkeypatch.setattr(app.time, "sleep", lambda s: None)
+    app.find_ports()
+    cfg = system.load_config()
+    assert (cfg["leader_port"], cfg["leader_serial"]) == ("/dev/ttyACM0", "AAA")
+    assert (cfg["follower_port"], cfg["follower_serial"]) == ("/dev/ttyACM1", "BBB")

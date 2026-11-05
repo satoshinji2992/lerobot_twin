@@ -44,7 +44,7 @@ Windows、macOS、Linux 用的是**同一套命令**：`twin.py` 是一个只依
 |---|---|
 | `twin setup` | 只需运行一次：建环境（有 conda 就建 `twin-depot` 环境，否则用 uv，再否则用自带 venv 建 `.venv`，都是 Python 3.12），安装 LeRobot（含飞特舵机 SDK）、MuJoCo、Pillow、pytest、usd-core，导入 Isaac 仓库（约 380 MB，下载一次），最后做一次无窗口自检。`--demo-only` 只装 MuJoCo，`--no-isaac` 跳过仓库下载 |
 | `twin demo` | 自动驾驶演示，不需要硬件 |
-| `twin ports` | **自动认端口**：按提示依次拔掉、插回主臂（和从臂），程序看哪个串口消失又出现，写进 `config.ini`。`twin ports --list` 只列出串口 |
+| `twin ports` | **自动认端口**：按提示依次拔掉、插回主臂（和从臂），程序看哪个串口消失又出现，把端口名和驱动板的 **USB 序列号**一起写进 `config.ini`。之后换 USB 口、COM 号变了、重启电脑，都会按序列号自动找回对应的臂，不用重认。`twin ports --list` 只列出串口（带序列号） |
 | `twin calibrate` | 用 LeRobot 依次标定从臂和主臂，每只臂只需做一次（`twin calibrate leader` 只标定主臂） |
 | `twin real` | 标准玩法：主臂带动真实从臂，孪生镜像从臂的实测姿态 |
 | `twin leader` | 只有主臂时使用，孪生就是“纯虚拟从臂” |
@@ -62,6 +62,8 @@ twin real --player 小明 --shift 90
 twin demo --hall builtin            # 不用 Isaac 仓库，用内置大厅
 twin demo --help                    # 所有游戏参数
 ```
+
+没有序列号的廉价驱动板（或两块板序列号相同）只能按端口名记，换了 USB 口要重跑 `twin ports`，程序会提示。
 
 `config.ini` 是每台电脑自己的设置（被 git 忽略），`play.py` 和 `stream_teleop.py` 也从这里读默认端口和 id，命令行参数优先。没运行过 `twin ports` 时会按系统猜一个端口并提示你：
 

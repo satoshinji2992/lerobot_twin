@@ -62,7 +62,7 @@ def _setup_console() -> None:
 
 def parse_args(argv=None) -> argparse.Namespace:
     cfg = system.load_config()  # config.ini (written by `twin ports` / `twin config`) sets the defaults
-    leader_port, follower_port, _ = system.arm_ports(cfg)
+    leader_port, follower_port, _, _ = system.arm_ports(cfg)
     p = argparse.ArgumentParser(
         prog="play.py",
         description="SO-101 Twin Depot - a digital-twin parcel sorting game (MuJoCo + LeRobot).",
@@ -159,7 +159,8 @@ def list_ports() -> None:
     if not ports:
         print("no serial ports found - is the arm's USB cable plugged in and powered?")
     for port in ports:
-        print(f"{'*' if _is_usb(port) else ' '} {port.device:<22} {port.description}  [{port.hwid}]")
+        sn = f"  SN {port.serial_number}" if port.serial_number else ""
+        print(f"{'*' if _is_usb(port) else ' '} {port.device:<22} {port.description}{sn}  [{port.hwid}]")
         hint = system.serial_permission_hint(port.device)
         if hint:
             print(f"  ! {hint}")
@@ -197,10 +198,32 @@ def find_ports() -> None:
     leader = _identify("leader")
     others = _usb_ports() - {leader}
     follower = others.pop() if len(others) == 1 else _identify("follower")
-    cfg = system.save_config({"leader_port": leader, "follower_port": follower})
-    print(
-        f"\n[twin] leader = {cfg['leader_port']}, follower = {cfg['follower_port']} -> {system.CONFIG_PATH}"
+    serials = {p.device: p.serial_number or "" for p in _comports()}
+    counts = {}
+    for sn in serials.values():
+        counts[sn] = counts.get(sn, 0) + 1
+    # a serial number only identifies a board if no other plugged-in board shares it (cheap clones do)
+    sn = {role: serials.get(dev, "") if counts.get(serials.get(dev, ""), 0) == 1 else ""
+          for role, dev in (("leader", leader), ("follower", follower))}  # fmt: skip
+    cfg = system.save_config(
+        {
+            "leader_port": leader,
+            "follower_port": follower,
+            "leader_serial": sn["leader"],
+            "follower_serial": sn["follower"],
+        }
     )
+    print(f"\n[twin] saved to {system.CONFIG_PATH}")
+    for role in ("leader", "follower"):
+        tag = (
+            f"USB serial {cfg[role + '_serial']}" if cfg[role + "_serial"] else "no unique USB serial number"
+        )
+        print(f"    {role:<8} = {cfg[role + '_port']:<22} ({tag})")
+    if all(sn.values()):
+        print("  the arms will be found again after re-plugging into other USB sockets")
+    else:
+        print("  ! a board without its own serial number is remembered by port name: re-run `twin ports`\n"
+              "    if you move it to another USB socket")  # fmt: skip
     for port in (leader, follower):
         hint = system.serial_permission_hint(port)
         if hint:
@@ -208,9 +231,14 @@ def find_ports() -> None:
 
 
 def _warn_unconfigured_ports(args) -> None:
-    if args.source in ("real", "leader") and not system.arm_ports()[2]:
-        cli = {a.split("=")[0] for a in (args.argv or [])}
-        if not {"--leader-port", "--follower-port"} & cli:
+    if args.source not in ("real", "leader"):
+        return
+    ports = system.arm_ports()
+    cli = {a.split("=")[0] for a in (args.argv or [])}
+    if not {"--leader-port", "--follower-port"} & cli:
+        for note in ports.notes:
+            print(f"[twin] {note}", flush=True)
+        if not ports.configured:
             print(
                 f"[twin] ports not configured, guessing leader={args.leader_port} follower={args.follower_port}"
                 " - run `twin ports` (or pass --leader-port/--follower-port)",
