@@ -83,6 +83,11 @@ def capture_profile(raw, source):
     if not isinstance(camera_key, str) or not re.fullmatch(r"[0-9a-f]{32}", camera_key):
         raise ValueError("相机配置标识无效")
     profile = dict(version=1, source=source, camera_key=camera_key)
+    angle = raw.get("screen_angle")
+    if angle is not None:
+        if type(angle) is not int or angle not in (-90, 0, 90, 180, 270):
+            raise ValueError("横屏方向无效")
+        profile["screen_angle"] = angle % 360
     for key in ("native_size", "video_size"):
         size = raw.get(key)
         if not isinstance(size, list) or len(size) != 2 or not all(type(n) is int and 0 < n <= 65535 for n in size):

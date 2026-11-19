@@ -51,6 +51,8 @@ def render(rng, desk, hand, skin):
     f = float(rng.uniform(340, 510))
     k = np.array([[f, 0, SIZE / 2], [0, f, SIZE / 2], [0, 0, 1.0]])
     objects = []
+    owners = np.zeros((SIZE, SIZE), np.uint8)
+    areas = []
     for _ in range(rng.choice([0, 1, 1, 2, 2, 2, 3, 4])):
         cls = int(rng.integers(4))
         uv = rng.uniform(42, SIZE - 42, 2)
@@ -78,6 +80,10 @@ def render(rng, desk, hand, skin):
             cv2.fillConvexPoly(
                 im, np.rint(pts[face]).astype(np.int32), np.clip(base * shade, 0, 255).tolist(), cv2.LINE_AA
             )
+        cube_mask = np.zeros((SIZE, SIZE), np.uint8)
+        cv2.fillConvexPoly(cube_mask, cv2.convexHull(pts.astype(np.int32)), 1)
+        areas.append(int(cube_mask.sum()))
+        owners[cube_mask != 0] = len(areas)
         if rng.random() < 0.65:
             # Cover a portion of the object with the edge of a real skin patch.
             side = int(max(hi - lo) * rng.uniform(0.7, 1.8))
@@ -92,11 +98,14 @@ def render(rng, desk, hand, skin):
                 i, j = np.array([x, y]) - origin
                 use = alpha[j : j + y1 - y, i : i + x1 - x] > 127
                 # Preserve some observable pixels; annotations cover the full cube.
-                cube_mask = np.zeros((SIZE, SIZE), np.uint8)
-                cv2.fillConvexPoly(cube_mask, cv2.convexHull(pts.astype(np.int32)), 1)
-                if (cube_mask[y:y1, x:x1] * use).sum() < 0.68 * cube_mask.sum():
+                covered = (cube_mask[y:y1, x:x1] * use).sum()
+                if covered < 0.68 * areas[-1]:
                     im[y:y1, x:x1][use] = patch[j : j + y1 - y, i : i + x1 - x][use]
-        objects.append({"cls": cls, "lo": lo, "hi": hi, "pts": pts, "xyz": t})
+                    owners[y:y1, x:x1][use] = 0
+        objects.append({"cls": cls, "lo": lo, "hi": hi, "pts": pts, "xyz": t, "rotation": rot})
+    visible = np.bincount(owners.ravel(), minlength=len(objects) + 1)
+    for i, obj in enumerate(objects):
+        obj["occlusion"] = 1 - visible[i + 1] / areas[i]
     im = cv2.convertScaleAbs(im, alpha=rng.uniform(0.69, 1.17), beta=rng.uniform(-7, 8))
     if rng.random() < 0.45:
         im = cv2.GaussianBlur(im, (3, 3), rng.uniform(0.5, 1.25))

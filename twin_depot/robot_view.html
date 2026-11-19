@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>机械臂观测台 · Twin Depot</title>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>视觉与机械臂工作台 · Twin Depot</title><style>body{margin:0}</style></head><body>
+
+<!-- BEGIN OBSERVATION COMPONENT -->
+<template id="observation-template">
     <style>
-      :root {
+      :host {
         color-scheme: light;
         --bg: #eef2f0;
         --ink: #172b2c;
@@ -695,18 +695,61 @@
       .stream-legend {display:flex;gap:15px;font-size:12px;color:#52635d;align-items:center;flex-wrap:wrap}
       .stream-legend span::before {content:"";display:inline-block;width:9px;height:9px;border-radius:2px;border:2px solid;margin-right:5px;vertical-align:-1px}
       .stream-legend .estimated::before {border-color:#ac509e}.stream-legend .candidate::before {border-color:#ba870e}.stream-legend .observed::before {border-color:#238066}
+      .stream-legend .observed.line-evidence::before {border-color:#14a6a1}
       @media(max-width:760px){.readiness {grid-template-columns:1fr 1fr}.readiness section:nth-child(2){grid-row:2;grid-column:1/-1}.readiness section {padding:9px 12px}.readiness strong {font-size:15px}}
      .work-actions{display:flex;flex-wrap:wrap;gap:8px} #armMessage{border-left:3px solid #237b65;background:#edf5f1;padding:12px 16px} .dialog-body h3{font-size:1rem;margin:18px 0 6px}.dialog-body .local{margin-bottom:12px} @media(max-width:680px){.intro{align-items:flex-start;flex-wrap:wrap}.work-actions{width:100%}.work-actions button{flex:1}}
+
+      :host {display:block;min-width:0}
+      :host([embedded]) {
+        --bg: inherit; --ink: inherit; --muted: inherit; --line: inherit; --bad: inherit;
+        --card: var(--panel); --quiet: var(--muted); --teal: var(--info);
+        --warn: #845904;
+        color-scheme: light dark;
+        background: transparent; color: var(--ink); font: inherit;
+      }
+      :host([embedded]) :is(button, a.button, select, input, dialog, .readiness section, .feed:fullscreen .feed-head) {
+        background: var(--panel); color: var(--ink); border-color: var(--line);
+      }
+      :host([embedded]) :is(button, a.button):hover:not(:disabled) {
+        background: var(--chip); border-color: var(--muted);
+      }
+      :host([embedded]) :is(#embeddedConnect, button.primary, a.primary) {
+        background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 650;
+      }
+      :host([embedded]) :is(#embeddedConnect, button.primary, a.primary):hover:not(:disabled) {
+        background: #f2b63e; border-color: #f2b63e; color: var(--accent-ink);
+      }
+      :host([embedded]) :focus-visible {outline: 3px solid var(--accent); outline-offset: 2px}
+      :host([embedded]) :is(.feed-image, .feed:fullscreen, #staleCamera) {background: var(--console)}
+      :host([embedded]) .placeholder {color: var(--console-ink)}
+      :host([embedded]) :is(.feed-foot, th, .dialog-body output) {background: var(--bg); color: var(--ink)}
+      :host([embedded]) :is(th, td) {border-color: var(--line)}
+      :host([embedded]) :is(.readiness small, .readiness h2, .stream-legend) {color: var(--muted)}
+      :host([embedded]) .readiness strong {color: var(--ink)}
+      :host([embedded]) .readiness strong[data-tone="warn"] {color: var(--warn)}
+      :host([embedded]) .readiness strong[data-tone="bad"] {color: var(--bad)}
+      :host([embedded]) :is(#notice, .missing, #armMessage) {
+        background: color-mix(in srgb, var(--accent) 10%, var(--panel)); border-color: var(--accent); color: var(--ink);
+      }
+      :host([embedded]) .missing .mono {color: var(--ink)}
+      @media (prefers-color-scheme: dark) {
+        :host([embedded]) {--warn: #efbb56; --teal: #92baff}
+        :host([embedded]) .readiness strong[data-tone="bad"] {color: #f39183}
+      }
+      :host([embedded]) .top {display:none}
+      :host([embedded]) main {padding:8px 0 0;max-width:none}
+      :host([embedded]) .intro h1 {display:none}
+      :host([embedded]) .intro {margin:0 0 12px}
+      :host([embedded]) #embeddedConnect {display:inline-flex}
+      #simPanel slot {display:none}
+      #simPanel.warehouse slot {display:contents}
+      #simPanel.warehouse #simEmpty,#simPanel.warehouse #sim,#simPanel.warehouse #simView,
+      #simPanel.warehouse #simCurrentView,#simPanel.warehouse .sim-caption {display:none}
+      ::slotted(img) {width:100%;height:100%;object-fit:contain}
+      [hidden] {display:none!important}
     </style>
-  </head>
-  <body>
-    <header class="top">
-      <div class="brand">
-        <span class="mark" aria-hidden="true"></span><strong>Twin Depot</strong><span class="sep">机械臂工位</span>
-      </div>
-      <nav class="top-actions" aria-label="工位设置">
-        <button id="connect" class="button">连接相机</button>
-      </nav>
+    <header class="top"><div class="brand"><span class="mark" aria-hidden="true"></span><strong>Twin Depot</strong><span class="sep">机械臂工位</span></div>
+      <nav class="top-actions" aria-label="工位设置"><button id="connect" class="button">连接相机</button></nav>
     </header>
     <main>
       <section class="intro">
@@ -717,7 +760,7 @@
           </div>
           <p class="sub" id="status" role="status">正在读取工作台状态…</p>
         </div>
-        <div class="work-actions"><button id="freeze" disabled>定格观测</button><button id="launchArm" class="primary">打开 SO-101 仿真 ↗</button></div>
+        <div class="work-actions"><button id="embeddedConnect" hidden>连接相机</button><button id="freeze" disabled>定格观测</button><button id="launchArm" class="primary">打开 SO-101 仿真 ↗</button></div>
       </section>
       <p id="armMessage" role="status" hidden></p><p id="notice" hidden></p>
       <div class="readiness" aria-label="工位状态">
@@ -772,7 +815,7 @@
         <figure class="panel feed" id="simPanel">
           <div class="feed-head">
             <div class="line">
-              <h2>工位重建</h2>
+              <h2 id="sceneTitle">工位重建</h2><select id="sceneSource" aria-label="右侧画面" hidden><option value="reconstruction">工位重建</option><option value="warehouse">仓库孪生</option></select>
               <small id="simCurrentView">MuJoCo</small>
             </div>
             <div class="line">
@@ -786,7 +829,7 @@
             </div>
           </div>
           <div class="feed-image">
-            <div class="placeholder" id="simEmpty">
+            <slot name="warehouse"></slot><div class="placeholder" id="simEmpty">
               <strong id="simHint">等待参考块定位</strong>
               <small id="simHelp">在工位上固定一个 29 mm 红色方块，让相机看清它的整个顶面。</small>
             </div>
@@ -799,9 +842,11 @@
             >
             <span id="viewMessage" role="status"></span>
           </figcaption>
+          <figcaption id="warehouseBasis" class="feed-foot" hidden></figcaption>
         </figure>
       </section>
       <p class="feed-meta" id="pipeline"></p>
+
       <section class="split">
         <article class="panel">
           <div class="box-head">
@@ -957,37 +1002,45 @@
         </div>
       </div>
     </dialog>
-    <script>
-      'use strict';
-      const el = (id) => document.getElementById(id);
+</template>
+<script>
+    'use strict';
+    function mountObservation(host, options = {}) {
+      const root = host.attachShadow({ mode: 'open' });
+      root.append(document.getElementById('observation-template').content.cloneNode(true));
+      const unified = Boolean(options.request);
+      host.toggleAttribute('embedded', unified);
+      const request = options.request || window.fetch.bind(window);
+      let workcellOrigin = location.origin, connectionId = '', connection = null;
+      const el = (id) => root.getElementById(id);
       const COLORS = {
         red: ['红色', '#ce5548'],
         green: ['绿色', '#288657'],
         blue: ['蓝色', '#3876cb'],
         yellow: ['黄色', '#b38212'],
       };
-      document.getElementById('launchArm').hidden = window.parent !== window;
-      document.getElementById('launchArm').onclick=async function(){
-        const msg=document.getElementById('armMessage');
+      el('launchArm').hidden = unified;
+      el('launchArm').onclick=async function(){
+        const msg=el('armMessage');
         this.disabled=true; msg.hidden=false; msg.textContent='正在打开 MuJoCo…';
         try {
-          const r=await fetch('/arm-viewer',{method:'POST',headers:{'X-Pair':token}});
+          const r=await request('/arm-viewer',{method:'POST',headers:{'X-Pair':token}});
           if(!r.ok) throw Error(r.status===403?'请使用完整的桌面配对链接。':'此工作台实例需要更新或重新启动。');
           msg.textContent='MuJoCo 窗口在工作台电脑上。手持模式在机械臂旁预览相机和方块的相对位置。工位模式完成基座配准后显示实际相对机械臂的位置。可在 Control 中调节仿真关节。';
         }catch(e){msg.textContent=e.message;}finally{this.disabled=false;}
       };
-      let token = location.hash.slice(1) || sessionStorage.robotViewPin || '';
+      let token = unified ? '' : location.hash.slice(1) || sessionStorage.robotViewPin || '';
       function saveToken(value) {
         token = value.trim();
-        sessionStorage.robotViewPin = token;
+        if (!unified) sessionStorage.robotViewPin = token;
         for (const [id, path] of [
           ['board', '/board'],
           ['registration', '/registration'],
         ])
-          el(id).href = path + '#' + encodeURIComponent(token);
+          { el(id).href = workcellOrigin + path + '#' + encodeURIComponent(token); if (unified) { el(id).target = '_blank'; el(id).rel = 'noopener'; } }
       }
       saveToken(token);
-      history.replaceState(null, '', location.pathname);
+      if (!unified) history.replaceState(null, '', location.pathname);
       const initialMode = el('cameraMode').textContent,
         initialFrame = el('frameName').textContent;
       const frameTimes = [],
@@ -1019,7 +1072,7 @@
         savingMode = true;
         el('coordMode').disabled = true;
         try {
-          const reply = await fetch('/frame-mode', {method:'POST', headers:{'Content-Type':'application/json','X-Pair':token},
+          const reply = await request('/frame-mode', {method:'POST', headers:{'Content-Type':'application/json','X-Pair':token},
             body:JSON.stringify({mode,pipeline:selected==='fast'?'fast':'precision'}), signal:AbortSignal.timeout(3500)});
           if (!reply.ok) throw Error('切换坐标系失败，请重新连接工作台。');
           requestEpoch++; after=''; snapshot=null; lose('坐标系已切换，等待新帧', '');
@@ -1055,7 +1108,7 @@
         el('simView').disabled = true;
         el('viewMessage').textContent = '等待' + viewNames[selected] + '的新仿真帧…';
         try {
-          const response = await fetch('/view', {
+          const response = await request('/view', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Pair': token },
             body: JSON.stringify({ view: selected }),
@@ -1486,6 +1539,9 @@
         const hasFrame = !!frameKey(s) && s.fresh !== false;
         const hasPose = hasFrame && cameraPose(s.camera_pose);
         const cameraMode = s.frame_mode === 'camera';
+        el('warehouseBasis').textContent = !hasFrame ? '等待相机观测' : cameraMode ?
+          '方块按相机相对位置预览 · 机械臂基座未配准' :
+          s.registered ? '实物方块已映射到机械臂基座' : '等待基座配准';
         const cal = s.calibration;
         const calLabels = {saved:'已标定 · 待接收画面',matched:'已标定 · 当前生效',lens_unverified:'已应用 · 镜头待核对',missing:'尚未标定',mismatch:'当前画面与标定不符'};
         el('calState').textContent = calLabels[cal?.state] || '等待工作台';
@@ -1504,7 +1560,6 @@
         }
         el('coordState').textContent=s.frame_mode?(cameraMode?'相机光心':s.registered?'机械臂基座':'参考块底面'):'等待工作台';
         el('baseState').textContent=s.frame_mode?(s.registered?'基座方向已确认':s.base_configured?'已保存基座配准':'机械臂基座尚未配准'):'';
-        el('measuredLegend').hidden=s.pipeline==='fast';
         const fast = cameraMode && s.pipeline === 'fast';
         el('plotTitle').textContent = cameraMode ? (fast ? '相机 XY · 模型估计轨迹' : '相机 XY · 实测轨迹') : '水平面轨迹';
         el('plotInfo').textContent = fast ? '轨迹连接同一目标的融合估计中心。缺少当前图像证据时断开。' : '实心点为当前融合中心，空心点为最后一次观测。遮挡期间轨迹断开。';
@@ -1515,6 +1570,9 @@
           : [];
         const valid = rows.length > 0;
         const completions=hasFrame?(s.completions||[]):[];
+        el('measuredLegend').hidden=s.pipeline==='fast' && !completions.some(c=>c.edge_method);
+        el('measuredLegend').classList.toggle('line-evidence',s.pipeline==='fast');
+        el('measuredLegend').textContent=s.pipeline==='fast'?'青线为图像棱线，点为交点':'实测轮廓';
         const rigid=hasFrame && Array.isArray(s.pose_tracks);
         const poseTracks=rigid?s.pose_tracks:[];
         el('candidateLegend').textContent=rigid?'橙线保深度 · 断线为预测或保持':'二维候选';
@@ -1616,11 +1674,13 @@
         el('pipeline').textContent = info.join('　·　');
         if (isFrame || !hasFrame || paused) {
           const selection=el('positionMode').value;
+          const poseSource=c=>({three_edges:'三棱交点',face_intersections:'四棱定面'}[c?.edge_method]
+            || (c?.outline_refined?'棱边校正':'网络角点'));
           const displayRows=rigid && selection==='raw_xyz' ? completions.map(c => ({
             color:c.color,track_id:c.track_id,raw_xyz:c.camera_xyz,
-            sourceLabel:c.outline_refined?'本帧 PnP · 棱边校正':'本帧 PnP · 网络角点'
+            sourceLabel:'本帧 · '+poseSource(c)
           })) : rigid ? poseTracks.map(p => {
-            const label={observed:completions[p.measurement_index]?.outline_refined?'卡尔曼融合 · 棱边校正':'卡尔曼融合 · 网络角点',depth_hold:'深度保持 '+p.depth_age_ms+' ms',
+            const label={observed:'卡尔曼融合 · '+poseSource(completions[p.measurement_index]),depth_hold:'深度保持 '+p.depth_age_ms+' ms',
               predicted:'遮挡预测 '+p.missing_ms+' ms',held:'遮挡保持 '+p.missing_ms+' ms'}[p.source];
             return {color:p.color,track_id:p.track_id,xyz:p.camera_xyz,lead_xyz:p.lead_camera_xyz,
               sourceLabel:selection==='lead_xyz'?(vec(p.lead_camera_xyz)?'外推 +'+p.lead_ms+' ms':label+' · 无外推'):label};
@@ -1659,7 +1719,13 @@
       function handleState(s) {
         const t = performance.now();
         el('notice').hidden = true;
-        connectInfo(s);
+        if (s.connection) {
+          connection = s.connection;
+          connectionId = s.connection_id || '';
+          connectInfo(s);
+        } else if (connectionId && s.connection_id === connectionId) {
+          s.connection = connection;
+        }
         const def = [
           s.registered ?? initialFrame,
           s.calibrated ?? initialMode,
@@ -1710,14 +1776,15 @@
         showSnapshot(s, newFrame);
       }
       async function poll() {
-        if (paused || !token || authenticated === false) {
+        if (document.hidden || (unified && !options.visible()) || paused || !token || authenticated === false) {
           setTimeout(poll, 250);
           return;
         }
         const id = requestEpoch;
         try {
-          const r = await fetch('/state', {
-            headers: { 'X-Pair': token, 'X-After': after, 'X-Wait':'1' },
+          const r = await request('/state', {
+            headers: { 'X-Pair': token, 'X-After': after, 'X-Wait':'1', 'X-Known-Connection':connectionId,
+                       'X-Scene-Image':el('simPanel').classList.contains('warehouse') ? 'skip' : 'show' },
             signal: AbortSignal.timeout(2200),
             cache: 'no-store',
           });
@@ -1769,8 +1836,12 @@
           el('copyResult').textContent = ' 已复制';
         } catch { el('copyResult').textContent = ' 请长按上方链接复制'; }
       };
-      el('connect').onclick = () => el('pairDialog').showModal();
-      el('emptyConnect').onclick = () => el('pairDialog').showModal();
+      el('connect').onclick = async () => {
+        if (unified && !token) { await options.start(); return; }
+        el('pairDialog').showModal();
+      };
+      el('emptyConnect').onclick = el('embeddedConnect').onclick = () => el('connect').click();
+      el('embeddedConnect').hidden = !unified;
       el('closeDialog').onclick = () => el('pairDialog').close();
       el('useDeskCode').onclick = () => {
         const value = el('deskCode').value;
@@ -1800,7 +1871,7 @@
         el('orientSubmit').disabled = true;
         el('orientationMessage').textContent = '正在确认方向…';
         try {
-          const response = await fetch('/registration/orient', {
+          const response = await request('/registration/orient', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Pair': token },
             body: JSON.stringify({ quarter: Number(edge), epoch }),
@@ -1820,7 +1891,7 @@
           el('orientSubmit').disabled = true;
         }
       };
-      for (const btn of document.querySelectorAll('.zoom')) {
+      for (const btn of root.querySelectorAll('.zoom')) {
         if (!document.fullscreenEnabled) {
           btn.hidden = true;
           continue;
@@ -1836,19 +1907,57 @@
         };
       }
       document.addEventListener('fullscreenchange', () => {
-        for (const btn of document.querySelectorAll('.zoom'))
-          btn.textContent = document.fullscreenElement === el(btn.dataset.for) ? '退出全屏' : '全屏';
+        for (const btn of root.querySelectorAll('.zoom'))
+          btn.textContent = root.fullscreenElement === el(btn.dataset.for) ? '退出全屏' : '全屏';
       });
       setInterval(() => {
         if (!paused && snapshot && performance.now() - lastFrameTime > 1500)
           lose('画面已过期，等待新的相机帧。', 'warn');
       }, 200);
-      if (!token) {
+      if (!unified && !token) {
         el('authBox').hidden = false;
         el('phoneDetails').hidden = true;
         el('pairDialog').showModal();
       }
+      function selectScene() {
+        const warehouse = el('sceneSource').value === 'warehouse';
+        el('simPanel').classList.toggle('warehouse', warehouse);
+        el('warehouseBasis').hidden = !warehouse;
+        el('sceneTitle').textContent = el('sceneSource').hidden ? '工位重建' : '三维画面';
+        if (!warehouse) { ++requestEpoch; after = ''; }
+      }
+      el('sceneSource').onchange = selectScene;
       poll();
-    </script>
-  </body>
-</html>
+      return {
+        openArm: () => el('launchArm').click(),
+        wantsWarehouseFrame: () => !paused && (!unified || options.visible()) && el('simPanel').classList.contains('warehouse'),
+        connect(url) {
+          const desk = url && new URL(url);
+          if (desk) workcellOrigin = desk.origin;
+          const next = desk ? desk.hash.slice(1) : '';
+          if (next !== token || (!next && !lastBadge)) {
+            ++requestEpoch; after = ''; snapshot = null; authenticated = null;
+            connectionId = ''; connection = null;
+            saveToken(next); lose(next ? '正在连接视觉工位' : '视觉工位尚未启用', '');
+          }
+          el('connect').textContent = el('embeddedConnect').textContent = next ? '连接相机' : '启用视觉工位';
+          el('board').hidden = el('registration').hidden = !next;
+        },
+        warehouse(available) {
+          const select = el('sceneSource');
+          if (select.hidden === !available) return;
+          select.hidden = !available;
+          select.value = available ? 'warehouse' : 'reconstruction';
+          selectScene();
+        }
+      };
+    }
+</script>
+<!-- END OBSERVATION COMPONENT -->
+<div id="vision"></div>
+
+<script>
+  const workbench = document.getElementById('vision');
+  if (!workbench.shadowRoot) mountObservation(workbench);
+</script>
+</body></html>

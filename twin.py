@@ -421,24 +421,35 @@ def menu() -> list[str] | None:
     return [choice] if choice in COMMANDS else None
 
 
-def cmd_ui(rest: list[str]) -> None:
+def cached_env_python():
     import time
 
-    from twin_depot import webui
-
-    ap = argparse.ArgumentParser(prog="twin ui")
-    ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--no-browser", action="store_true")
-    a = ap.parse_args(rest)
     cache = {"py": None, "t": -1e9}
 
-    def cached_env_python() -> str | None:  # polled every second: conda lookups are slow
+    def lookup() -> str | None:  # polled every second: conda lookups are slow
         age = time.monotonic() - cache["t"]
         if age > 15 or (cache["py"] is None and age > 3):
             cache["py"], cache["t"] = env_python(), time.monotonic()
         return cache["py"]
 
-    webui.serve(Path(__file__).resolve(), cached_env_python, port=a.port, open_browser=not a.no_browser)
+    return lookup
+
+
+def cmd_ui(rest: list[str]) -> None:
+    from twin_depot import webui
+
+    ap = argparse.ArgumentParser(prog="twin ui")
+    ap.add_argument("--port", type=int)
+    ap.add_argument("--no-browser", action="store_true")
+    a = ap.parse_args(rest)
+    if not a.no_browser and (url := webui.console_url()) and (
+        a.port is None or url == f"http://127.0.0.1:{a.port}/"
+    ):
+        import webbrowser
+        webbrowser.open(url)
+        return
+    webui.serve(Path(__file__).resolve(), cached_env_python(), port=8765 if a.port is None else a.port,
+                open_browser=not a.no_browser)
 
 
 def main(argv: list[str]) -> None:

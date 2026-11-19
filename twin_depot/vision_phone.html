@@ -189,6 +189,7 @@
     </dl>
     <p id="workcellState" hidden aria-live="polite"></p>
     <p id="msg">将待测方块放入画面，保持镜头、画幅和方向与内参标定时一致。工位模式还需拍到固定参考块。</p>
+    <p id="landscapeHint">请横握手机拍摄；竖屏画面会暂停上传，恢复横屏后自动继续。</p>
     <p id="hint">
       请保持浏览器采集页位于前台。上传往返耗时较长时，可切换到低带宽画质，画面尺寸保持一致。
     </p>
@@ -200,6 +201,7 @@
         canvas = document.createElement('canvas');
       const local = location.pathname === '/camera',
         prefix = local ? '/camera' : '';
+      $('landscapeHint').hidden = local;
       let generation = 0,
         stream = null,
         request = null;
@@ -302,6 +304,8 @@
             camera_key: cameraKey,
             native_size: [settings.width || video.videoWidth, settings.height || video.videoHeight],
             video_size: [video.videoWidth, video.videoHeight],
+            screen_angle: !local && video.videoWidth > video.videoHeight
+              ? (screen.orientation?.angle ?? window.orientation ?? null) : null,
             facing: ['user','environment','left','right'].includes(settings.facingMode) ? settings.facingMode : null,
             zoom: Number.isFinite(settings.zoom) && settings.zoom > 0 ? Number(settings.zoom.toFixed(4)) : null,
             resize_mode: ['none','crop-and-scale'].includes(settings.resizeMode) ? settings.resizeMode : null,
@@ -414,6 +418,14 @@
             retries = 0;
           while (id === generation) {
             try {
+              if (!local && video.videoWidth <= video.videoHeight) {
+                status('请横握手机');
+                $('msg').textContent = '等待横屏相机画面。若已横握，请关闭屏幕方向锁定。';
+                clearRates();
+                sent = 0; nextSeq = null; windowStart = performance.now();
+                await pause(180);
+                continue;
+              }
               if (nextProfile) {
                 const replacement = await startSession(nextProfile);
                 if (id !== generation) break;
@@ -450,6 +462,7 @@
               const w = Math.round(video.videoWidth * scale),
                 h = Math.round(video.videoHeight * scale);
               if (!w || !h) throw Error('等待相机尺寸');
+              if (!local && w <= h) continue;
               const begin = performance.now();
               if (canvas.width !== w || canvas.height !== h) {
                 canvas.width = w;

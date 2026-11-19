@@ -2,6 +2,8 @@
 import json
 import os
 import tempfile
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -27,6 +29,33 @@ def read_state(origin, token):
     req = Request(origin + "/sim-state", headers={"X-Pair": token})
     with urlopen(req, timeout=0.5) as response:
         return json.load(response)
+
+
+@contextmanager
+def live_observations():
+    """Keep network reads off the simulation clock, including when the camera is offline."""
+    stop = threading.Event()
+    latest = ([], "")
+
+    def read():
+        nonlocal latest
+        while not stop.is_set():
+            try:
+                state = read_state(*endpoint())
+                latest = observation_poses(state)
+                delay = 0.05 if state.get("fresh") else 0.3
+            except (OSError, ValueError):
+                latest = ([], "")
+                delay = 1
+            stop.wait(delay)
+
+    worker = threading.Thread(target=read, daemon=True)
+    worker.start()
+    try:
+        yield lambda: latest
+    finally:
+        stop.set()
+        worker.join(timeout=1)
 
 
 COLORS = {

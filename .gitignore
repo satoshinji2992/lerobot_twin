@@ -8,6 +8,7 @@ build/
 data/
 # session recordings
 runs/
+test_video.mp4
 # per-machine: arm ports/ids (twin ports / twin config) and the environment twin setup made
 config.ini
 .twin-python

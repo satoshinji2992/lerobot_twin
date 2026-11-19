@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>仓库大屏 · Twin Depot</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101311;color:#eef1ed;font:15px/1.5 system-ui,sans-serif;display:grid;grid-template-rows:auto minmax(0,1fr);height:100vh;height:100dvh}
+header{display:flex;align-items:center;gap:14px;padding:10px 18px;background:#1c201d;border-bottom:1px solid #383f39}
+h1{font-size:17px;margin:0 auto 0 0;border-left:5px solid #e8a317;padding-left:10px}
+a,button{font:inherit;color:inherit}button{background:#e8a317;color:#181b18;border:0;border-radius:5px;padding:5px 12px;cursor:pointer}
+main{display:grid;place-items:center;min-height:0}img{width:100%;height:100%;min-height:0;object-fit:contain}p{text-align:center;color:#c4ccc5}
+</style></head><body><header><h1>仓库孪生</h1><a href="/#play-card">班次控制</a><button id="full">全屏</button></header>
+<main><img id="scene" alt="当前班次的仓库实况" hidden><p role="status">正在连接仓库…</p></main>
+<script>
+const scene=document.querySelector('#scene'), statusLine=document.querySelector('p'), full=document.querySelector('#full');
+let url='',tag='';
+function clearFrame(message){
+  scene.hidden=true;scene.removeAttribute('src');if(url)URL.revokeObjectURL(url);
+  url=tag='';statusLine.hidden=false;statusLine.textContent=message;
+}
+async function poll(){
+  let delay=65;
+  try{
+    if(document.hidden){delay=500;return}
+    const res=await fetch('/api/warehouse.jpg',{cache:'no-store',headers:{'X-Twin-Token':'__TWIN_TOKEN__','If-None-Match':tag}});
+    if(res.status===304)return;
+    if(res.status===204){clearFrame('网页预览尚未出图。使用 MuJoCo 独立窗口时，请切换到桌面的仿真窗口；如需在这里观看，请在开始班次前选择「网页预览」。');delay=500;return}
+    if(!res.ok)throw Error();
+    const next=URL.createObjectURL(await res.blob()),old=url;
+    scene.src=next;url=next;scene.hidden=false;statusLine.hidden=true;tag=res.headers.get('ETag')||'';
+    if(old)URL.revokeObjectURL(old);
+  }catch{clearFrame('仓库连接中断，正在重连。');delay=800}
+  finally{setTimeout(poll,delay)}
+}
+full.hidden=!document.fullscreenEnabled;
+full.onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();
+document.onfullscreenchange=()=>full.textContent=document.fullscreenElement?'退出全屏':'全屏';
+poll();
+</script></body></html>

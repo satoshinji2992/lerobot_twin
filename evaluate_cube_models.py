@@ -6,8 +6,8 @@ import time
 
 import cv2
 import numpy as np
-from cube_model_trial import MODELS, NAMES, ROOT, SIZE, TRIAL, backgrounds, render
-from twin_depot.cuboid_pnp import SYMMETRIES
+from cube_model_trial import MODELS, NAMES, REFERENCE, ROOT, SIZE, TRIAL, backgrounds, render
+from twin_depot.cuboid_pnp import CENTRED, SYMMETRIES
 from twin_depot.cube_completion import Completion
 from twin_depot.cube_observer import FastObserver
 from twin_depot.cube_pose import camera_matrix
@@ -205,15 +205,32 @@ def evaluate(kind):
     print(kind, json.dumps(scores), flush=True)
 
 
-def evaluate_angles():
+def evaluate_angles(seed=817421, frames=400):
     """Paired orientation errors on new scenes independent of the training seeds."""
-    rng = np.random.default_rng(817421)
+    rng = np.random.default_rng(seed)
     backdrop = backgrounds()
     model = load_trial("pose", "cuda")
     records = []
     total = 0
     matched = [0, 0]
-    for _ in range(400):
+    def rotation_error(a, b):
+        cosine = (np.trace((a.T @ b) @ symmetries, axis1=1, axis2=2).max() - 1) / 2
+        return float(np.rad2deg(np.arccos(np.clip(cosine, -1, 1))))
+
+    symmetries = np.stack(SYMMETRIES)
+    # A symmetry permutes the eight physical corners together.
+    permutation = np.array([np.linalg.norm((CENTRED @ s.T)[:, None] - CENTRED, axis=2).argmin(1)
+                            for s in symmetries])
+    corner_inputs = {}
+    def record_fit(corners, k, dist, side):
+        fit = TrialObserver.fit(corners, k, dist, side)
+        if fit is not None:
+            corner_inputs[fit[0].tobytes()] = corners
+        return fit
+
+    model.fit = record_fit
+    for _ in range(frames):
+        corner_inputs.clear()
         image, objects, k = render(rng, *backdrop)
         total += len(objects)
         quality = int(rng.integers(65, 94))
@@ -230,30 +247,52 @@ def evaluate_angles():
             predictions.append({j: rows[i] for j, i in pairs.items()})
         old, new = predictions
         for j in old.keys() & new.keys():
-            reference = model.fit(objects[j]["pts"], k, None, SIZE)[0][:3, :3]
-            angles = []
-            for row in (old[j], new[j]):
-                delta = reference.T @ np.array(row["camera_pose"])[:3, :3]
-                cosine = max((np.trace(delta @ symmetry) - 1) / 2 for symmetry in SYMMETRIES)
-                angles.append(np.rad2deg(np.arccos(np.clip(cosine, -1, 1))))
-            records.append([*angles, bool(new[j].get("outline_refined"))])
-    errors = np.array(records).reshape(-1, 3)
-    print(f"Targets: {total}; matches before/after: {matched}")
-    for name, sample in (("all paired", errors), ("refined", errors[errors[:, 2] > 0])):
-        if len(sample):
-            print(name, len(sample), "P50/P95 degrees (before, after):",
-                  np.percentile(sample[:, :2], [50, 95], axis=0).round(2).tolist(),
-                  "under 10 degrees:", (sample[:, :2] < 10).sum(axis=0).tolist())
+            obj = objects[j]
+            truth_r = obj["rotation"]
+            raw = np.array(old[j]["camera_pose"])
+            final = np.array(new[j]["camera_pose"])
+            corners = corner_inputs[raw.tobytes()]
+            oracle, _ = TrialObserver.fit(obj["pts"], k, None, SIZE)
+            aligned = np.linalg.norm(corners - obj["pts"][permutation], axis=2).mean(1).min()
+            records.append(dict(
+                oracle=rotation_error(truth_r, oracle[:3, :3]),
+                raw=rotation_error(truth_r, raw[:3, :3]),
+                final=rotation_error(truth_r, final[:3, :3]),
+                raw_center_mm=float(np.linalg.norm(raw[:3, 3] - obj["xyz"])),
+                final_center_mm=float(np.linalg.norm(final[:3, 3] - obj["xyz"])),
+                pred_to_reference=rotation_error(REFERENCE, raw[:3, :3]),
+                truth_to_reference=rotation_error(REFERENCE, truth_r),
+                corner_error_px=float(aligned),
+                reprojection_px=float(np.linalg.norm(corners - old[j]["pixels"], axis=1).mean()),
+                box_px=float(max(obj["hi"] - obj["lo"])),
+                occlusion=float(obj["occlusion"]),
+                refined=bool(new[j].get("outline_refined")),
+                edge_method=new[j].get("edge_method"),
+            ))
+    report = dict(seed=seed, frames=frames, targets=total, matched=matched, paired=len(records))
+    for name, sample in (("all", records), ("refined", [r for r in records if r["refined"]]),
+                         ("unrefined", [r for r in records if not r["refined"]]),
+                         ("uncovered", [r for r in records if r["occlusion"] == 0]),
+                         ("covered_20pct_or_more", [r for r in records if r["occlusion"] >= 0.20]),
+                         ("three_edges", [r for r in records if r["edge_method"] == "three_edges"]),
+                         ("face_intersections", [r for r in records if r["edge_method"] == "face_intersections"])):
+        if sample:
+            report[name] = dict(n=len(sample), below10=sum(r["final"] < 10 for r in sample))
+            for key in sorted(sample[0].keys() - {"refined", "edge_method"}):
+                report[name][key] = np.percentile([r[key] for r in sample], [50, 95]).round(4).tolist()
+    return report
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("models", nargs="*", help="current, detect, pose-raw, pose, vit or rescue")
     parser.add_argument("--angle-check", action="store_true", help="paired symmetry-aware pose benchmark")
+    parser.add_argument("--seed", type=int, default=817421)
+    parser.add_argument("--frames", type=int, default=400)
     args = parser.parse_args()
     cv2.setNumThreads(2)
     if args.angle_check:
-        evaluate_angles()
+        print(json.dumps(evaluate_angles(args.seed, args.frames), indent=2))
         raise SystemExit(0)
     for kind in args.models or ("current", "pose-raw", *MODELS, "rescue"):
         if kind not in ("current", "pose-raw", *MODELS, "rescue"):

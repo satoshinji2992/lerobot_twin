@@ -180,6 +180,9 @@ def test_pages_calibration_and_registration(service):
         service.call("/state", token="invalid")
     assert denied.value.code == 403
     assert service.camera()
+    first = service.call("/state")
+    cached = service.call("/state", headers={"X-Known-Connection": first["connection_id"]})
+    assert cached["connection_id"] == first["connection_id"] and "connection" not in cached
     assert service.call("/board/status", {})["count"] == 0
     preview = service.call("/registration/preview", REGISTRATION)
     assert preview.get("result", preview)["can_apply"]

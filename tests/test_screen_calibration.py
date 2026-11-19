@@ -96,3 +96,29 @@ def test_frontal_translations_do_not_establish_intrinsics(tmp_path):
         batch.corners.append(grid*41 + np.float32([50 + (i%5)*90, 30 + (i//5)*120]))
     with pytest.raises((ValueError, cv2.error)):
         batch.solve()
+
+
+@pytest.mark.parametrize("clockwise", [True, False])
+def test_quarter_turn_migration_preserves_distorted_projections(tmp_path, clockwise):
+    # Generate portrait measurements first, then rotate the measured pixels independently.
+    k = np.array([[710., 0, 297.], [0, 734., 416.], [0, 0, 1.]])
+    dist = np.array([.09, -.12, .007, -.004, 0.])
+    old = dict(source="phone", camera_key="lens", native_size=[600, 800], video_size=[600, 800], zoom=1)
+    profile = dict(old, native_size=[800, 600], video_size=[800, 600])
+    model = dict(image_size=[600, 800], K=k.tolist(), dist=dist.tolist(), capture_profile=old)
+    batch = ScreenCalibration(tmp_path)
+    batch.size = (800, 600)
+    grid = np.zeros((54, 3), np.float32)
+    grid[:, :2] = np.mgrid[:9, :6].T.reshape(-1, 2)
+    for x, y in [(-7, -9), (0, -9), (-7, 4), (0, 4)]:
+        uv = cv2.projectPoints(grid, np.array([.3, -.17, .12]), np.array([x, y, 21.]), k, dist)[0]
+        u, v = uv[..., 0], uv[..., 1]
+        batch.corners.append(np.stack((799-v, u) if clockwise else (v, 599-u), axis=-1))
+    result = batch.migrate(model, profile, clockwise)
+    assert result["validation"]["heldout_rms_px"] < .001
+    assert model["image_size"] == [600, 800]
+    with pytest.raises(ValueError, match="镜头"):
+        batch.migrate(model, dict(profile, zoom=2), clockwise)
+    batch.corners[-1][1::2, 0, 0] += 8
+    with pytest.raises(ValueError, match="验证未通过"):
+        batch.migrate(model, profile, clockwise)

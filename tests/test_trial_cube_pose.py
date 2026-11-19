@@ -3,6 +3,66 @@ import numpy as np
 import pytest
 from twin_depot.cube_trial_observer import RescueObserver, TrialObserver, refine_outline
 from twin_depot.cuboid_pnp import CENTRED, SYMMETRIES
+from twin_depot.cube_outline_search import search_outline
+from twin_depot.cube_image_edges import corner_junctions, face_quads, image_segments, junction_pose
+
+
+def test_truncated_edges_measure_orientation_at_a_three_way_corner():
+    # All three distant endpoints are hidden by different amounts. Only their
+    # directions and their common visible vertex may be used for rotation.
+    k = np.array([[620., 0., 200.], [0., 640., 150.], [0., 0., 1.]])
+    dist = np.array([0.04, -0.01, 0.001, 0.002, 0.])
+    t = np.array([48., -35., 310.])
+    rv = np.array([0.45, -0.55, 0.25])
+    rotation = cv2.Rodrigues(rv)[0]
+    cam = CENTRED @ rotation.T + t
+    near = np.linalg.norm(cam, axis=1).argmin()
+    ends = cam[np.sum(CENTRED[near] != CENTRED, axis=1) == 1]
+    def project(fractions):
+        p = cam[near] + fractions[:, None] * (ends - cam[near])
+        return cv2.projectPoints(p, np.zeros(3), np.zeros(3), k, dist)[0].reshape(-1, 2)
+    lines = np.stack((project(np.full(3, 0.02)), project(np.array([0.41, 0.70, 0.60]))), axis=1)
+    origin = np.array([100., 20.])
+    (corner, segments), = corner_junctions(lines - origin)
+    pose = junction_pose(corner, segments, origin, k, dist, t[2])
+    cosine = max((np.trace(rotation.T @ pose[:3, :3] @ s) - 1) / 2 for s in SYMMETRIES)
+    assert np.degrees(np.arccos(np.clip(cosine, -1, 1))) < 0.1
+    assert np.linalg.norm(pose[:3, 3] - t) < 0.1
+    assert not list(corner_junctions(lines[:2]))
+
+
+def test_face_vertices_are_intersections_of_detected_image_segments():
+    value = np.zeros((74, 80), np.uint8)
+    mask = np.zeros_like(value)
+    face = np.int32([[17, 18], [54, 14], [61, 48], [24, 53]])
+    cv2.fillConvexPoly(mask, face, 255)
+    cv2.fillConvexPoly(value, face, 150)
+    quads = face_quads(image_segments(value, mask), mask)
+    assert any(np.linalg.norm(q[:, None] - face, axis=2).min(1).max() < 2 for q, _ in quads)
+
+
+def test_ridges_disambiguate_a_similar_off_axis_silhouette():
+    k = np.array([[620., 0., 200.], [0., 640., 150.], [0., 0., 1.]])
+    dist = np.array([0.06, -0.02, 0.001, 0.002, 0.])
+    t = np.array([48., -35., 310.])
+    rv = np.array([0.45, -0.55, 0.25])
+    rotation = cv2.Rodrigues(rv)[0]
+    pixels = cv2.projectPoints(CENTRED, rv, t, k, dist)[0].reshape(-1, 2)
+    origin = np.floor(pixels.min(0) - 6).astype(int)
+    pixels = np.int32(np.rint(pixels - origin))
+    hull = cv2.convexHull(pixels)
+    edge_map = np.ones(tuple((pixels.max(0) + 7)[::-1]), np.uint8)
+    seed = np.eye(4)
+    seed[:3, :3] = cv2.Rodrigues(np.pi * t / np.linalg.norm(t))[0] @ rotation
+    seed[:3, 3] = t
+    assert search_outline(hull, origin, seed, k, dist, np.full(edge_map.shape, 20.)) is None
+    nearest = np.linalg.norm(CENTRED @ rotation.T + t, axis=1).argmin()
+    for j in np.flatnonzero(np.sum(CENTRED[nearest] != CENTRED, axis=1) == 1):
+        cv2.line(edge_map, pixels[nearest], pixels[j], 0, 1)
+    pose = search_outline(hull, origin, seed, k, dist, cv2.distanceTransform(edge_map, cv2.DIST_L2, 3))
+    cosine = max((np.trace(rotation.T @ pose[:3, :3] @ s) - 1) / 2 for s in SYMMETRIES)
+    assert np.degrees(np.arccos(np.clip(cosine, -1, 1))) < 5
+    assert np.linalg.norm(pose[:3, 3] - t) < 3
 
 
 def test_image_outline_corrects_self_consistent_thirty_degree_error():

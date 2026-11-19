@@ -135,7 +135,7 @@ def _color(hue):
     return None
 
 
-def _color_outline(hsv, q, label):
+def _color_outline(hsv, q, label, *, allow_partial=False):
     """Local connected colour support provides an independent outer silhouette."""
     center = q.mean(axis=0)
     radius = int(1.7 * np.linalg.norm(np.ptp(q, axis=0)))
@@ -152,8 +152,32 @@ def _color_outline(hsv, q, label):
     mask = np.uint8(hue & (s > 52) & (v > 21))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
+    if allow_partial and contours and not any(
+        cv2.pointPolygonTest(c, tuple((center - xy).tolist()), False) >= 0 for c in contours
+    ):
+        # A finger can cover the projected centre. Associate the remaining
+        # connected component with the predicted footprint before using it.
+        footprint = np.zeros_like(mask)
+        cv2.fillConvexPoly(footprint, cv2.convexHull(np.int32(np.rint(q - xy))), 1)
+        inside = cv2.countNonZero(footprint)
+        supported = []
+        for i, c in enumerate(contours):
+            area = cv2.contourArea(c)
+            if area < 0.2 * inside:
+                continue
+            component = np.zeros_like(mask)
+            cv2.drawContours(component, [c], 0, 1, -1)
+            common = cv2.countNonZero(component & footprint)
+            if common > max(0.25 * inside, 0.66 * cv2.countNonZero(component)):
+                supported.append(i)
+        if len(supported) != 1:
+            return None
+        contours = [contours[supported[0]]]
+        allow_outside_center = True
+    else:
+        allow_outside_center = False
     for c in contours:
-        if cv2.pointPolygonTest(c, tuple((center - xy).tolist()), False) >= 0:
+        if allow_outside_center or cv2.pointPolygonTest(c, tuple((center - xy).tolist()), False) >= 0:
             bx, by, w, height = cv2.boundingRect(c)
             if bx == 0 or by == 0 or bx + w >= mask.shape[1] or by + height >= mask.shape[0]:
                 return None

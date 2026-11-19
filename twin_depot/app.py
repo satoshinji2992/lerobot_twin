@@ -138,6 +138,8 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--stdin", action="store_true", help="read game commands from stdin even when it is not a terminal"
     )
     p.add_argument("--headless", action="store_true", help="no window (tests / benchmarks)")
+    p.add_argument("--native-viewer", action="store_true", help="Open the interactive MuJoCo warehouse window")
+    p.add_argument("--web-preview", type=Path, help=argparse.SUPPRESS)
     p.add_argument("--duration", type=float, default=None, help="stop after this many simulated seconds")
     p.add_argument("-v", "--verbose", action="store_true")
     return p.parse_args(argv)
@@ -447,7 +449,7 @@ def run_viewer(sess: Session) -> None:
     import mujoco.viewer
 
     from .hud import Hud
-    from .workcell_link import endpoint, observation_poses, read_state
+    from .workcell_link import live_observations
 
     hud = Hud(sess.m, sess.game, sess.autopilot.home)
     keymap = {
@@ -469,23 +471,7 @@ def run_viewer(sess: Session) -> None:
         threading.Thread(target=_stdin_commands, args=(sess.commands,), daemon=True).start()
     with mujoco.viewer.launch_passive(
         sess.m, sess.d, key_callback=on_key, show_left_ui=False, show_right_ui=False
-    ) as v:
-        vision_stop = threading.Event()
-        latest = ([], "")
-
-        def read_vision():
-            nonlocal latest
-            while not vision_stop.is_set():
-                try:
-                    state = read_state(*endpoint())
-                    latest = observation_poses(state)
-                    delay = 0.05 if state.get("fresh") else 0.3
-                except (OSError, ValueError):
-                    latest = ([], "")
-                    delay = 1
-                vision_stop.wait(delay)
-
-        threading.Thread(target=read_vision, daemon=True).start()
+    ) as v, live_observations() as observations:
         with v.lock():
             v.cam.lookat[:] = (0.12, 0.02, 0.02)
             v.cam.distance, v.cam.azimuth, v.cam.elevation = 0.95, 225.0, -38.0
@@ -500,7 +486,7 @@ def run_viewer(sess: Session) -> None:
                 events = sess.frame()
                 hud.on_events(events, sess.game.t)
                 hud.draw(v)
-                poses, label = latest
+                poses, label = observations()
                 hud.draw_vision(v.user_scn, poses)
             v.sync()
             # after sync(): set_texts blocks until the render thread has consumed the previous texts
@@ -508,7 +494,66 @@ def run_viewer(sess: Session) -> None:
             if sess.args.duration and sess.game.t >= sess.args.duration:
                 break
             time.sleep(max(0.0, sess.frame_dt - (time.perf_counter() - t0)))
-        vision_stop.set()
+
+
+def run_web_viewer(sess: Session) -> None:
+    from PIL import Image
+    from .hud import Hud
+    from .workcell_link import live_observations
+
+    path = sess.args.web_preview
+    tmp = path.with_suffix(".tmp")
+    scene_lock = threading.Lock()
+    done = threading.Event()
+    failures = []
+    hud = Hud(sess.m, sess.game, sess.autopilot.home)
+    camera = mujoco.MjvCamera()
+    camera.lookat[:] = (0.08, 0.12, 0.10)
+    camera.distance, camera.azimuth, camera.elevation = 1.65, 225, -32
+    options = mujoco.MjvOption()
+    options.sitegroup[:] = 0
+
+    def render():
+        try:
+            with mujoco.Renderer(sess.m, height=720, width=1280) as renderer, live_observations() as observations:
+                while not done.is_set():
+                    started = time.monotonic()
+                    with scene_lock:
+                        renderer.update_scene(sess.d, camera=camera, scene_option=options)
+                        world_geoms = renderer.scene.ngeom
+                        hud.append_overlays(renderer.scene)
+                        for idx in range(world_geoms, renderer.scene.ngeom):
+                            renderer.scene.geoms[idx].label = ""
+                        hud.draw_vision(renderer.scene, observations()[0])
+                    Image.fromarray(renderer.render()).save(tmp, format="JPEG", quality=78)
+                    try:
+                        os.replace(tmp, path)
+                    except PermissionError:
+                        if not system.IS_WINDOWS:
+                            raise
+                    done.wait(max(0., 1 / 15 - (time.monotonic() - started)))
+        except Exception as exc:
+            failures.append(exc)
+            done.set()
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    threading.Thread(target=_stdin_commands, args=(sess.commands,), daemon=True).start()
+    worker = threading.Thread(target=render, name="warehouse-preview")
+    worker.start()
+    try:
+        while not done.is_set() and not sess.game.quit_requested:
+            started = time.monotonic()
+            with scene_lock:
+                hud.on_events(sess.frame(), sess.game.t)
+            if sess.args.duration and sess.game.t >= sess.args.duration:
+                break
+            done.wait(max(0., sess.frame_dt - (time.monotonic() - started)))
+    finally:
+        done.set()
+        worker.join()
+    if failures:
+        raise RuntimeError(f"仓库画面渲染失败：{failures[0]}") from failures[0]
 
 
 def run_headless(sess: Session, realtime: bool) -> None:
@@ -526,6 +571,8 @@ def run_headless(sess: Session, realtime: bool) -> None:
 def main(argv=None) -> None:
     _setup_console()
     args = parse_args(argv)
+    if args.native_viewer:
+        args.web_preview = None
     args.argv = list(sys.argv[1:] if argv is None else argv)
     if args.list_ports:
         list_ports()
@@ -534,7 +581,7 @@ def main(argv=None) -> None:
         find_ports()
         return
     _warn_unconfigured_ports(args)
-    if not args.headless:
+    if not args.headless and not args.web_preview:
         system.ensure_viewer_process()  # macOS: hop into mjpython before building anything
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(name)s: %(message)s"
@@ -542,7 +589,9 @@ def main(argv=None) -> None:
     sess = Session(args)
     try:
         sess.start()
-        if args.headless:
+        if args.web_preview:
+            run_web_viewer(sess)
+        elif args.headless:
             run_headless(sess, realtime=sess.source is not None)
         else:
             run_viewer(sess)
@@ -555,7 +604,7 @@ def main(argv=None) -> None:
             print(
                 f"[twin] last shift: score {r['score']} rank {r['rank']} ({r['title_zh']}), accuracy {r['accuracy']}%"
             )
-        if not args.headless:
+        if not args.headless and not args.web_preview:
             # GLFW's atexit teardown can segfault under WSLg/Wayland; everything is cleaned up by now.
             sys.stdout.flush()
             os._exit(0)

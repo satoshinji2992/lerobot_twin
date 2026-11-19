@@ -203,6 +203,8 @@ class Workcell:
             path = self.config_path
             config = json.loads(path.read_text("utf-8-sig")) if path.exists() else dict(self.config)
             config[key] = value
+            if key == "intrinsics":
+                config.pop("landscape_intrinsics", None)
             base = transform(config.get("base_from_reference", np.eye(4)))
             path.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(mode="w", encoding="utf8", dir=path.parent, delete=False) as tmp:
@@ -253,6 +255,13 @@ class Workcell:
                     message = self.batch.offer(frame.jpeg, frame.session)
                     if self.batch.session == frame.session:
                         self.batch_profile = frame.profile
+                elif action in ("migrate-cw", "migrate-ccw"):
+                    frame = self.source.read()
+                    if not frame.fresh or frame.session != self.batch.session or frame.profile != self.batch_profile:
+                        raise ValueError("请在同一相机会话中采集并验证横屏图像")
+                    result = self.batch.migrate(self.config.get("intrinsics"), frame.profile, action == "migrate-cw")
+                    self.save("landscape_intrinsics", result)
+                    message = f"横屏内参已验证并应用，验证 RMS {result['validation']['heldout_rms_px']:.3f} px"
                 elif action == "solve":
                     result = self.batch.solve()
                     if self.batch_profile is not None:
@@ -269,6 +278,7 @@ class Workcell:
                 message=message,
                 **self.batch.report(),
                 applied_rms_px=intr.get("rms_px"),
+                landscape_validation=(self.config.get("landscape_intrinsics") or {}).get("validation"),
             )
 
     def state(self, after, wait=False):
@@ -298,7 +308,7 @@ class Workcell:
                 snap.pop("image", None)
                 snap.pop("sim", None)
             snap.setdefault("view", self.view)
-            intr = self.config.get("intrinsics") or {}
+            intr = self.config.get(snap.pop("_intrinsics_key", "intrinsics")) or {}
             snap.setdefault("calibrated", bool(intr))
             if not intr:
                 calibration_state = "missing"
@@ -431,7 +441,10 @@ def run_worker(cell, predict, stop):
                         arrivals.clear()
                         cell.idle("等待新的相机画面")
                     config_revision = cell.revision
-                    intr = cell.config.get("intrinsics")
+                    landscape = cell.config.get("landscape_intrinsics")
+                    intr_key = ("landscape_intrinsics" if landscape and landscape["capture_profile"] == frame.profile
+                                else "intrinsics")
+                    intr = cell.config.get(intr_key)
                     view = cell.view
                     mode = cell.frame_mode
                     pipeline = cell.pipeline
@@ -484,7 +497,11 @@ def run_worker(cell, predict, stop):
                 rigid_mode = pipeline == "fast" and getattr(fast_observer, "verify_pose", False)
                 pose_tracks = []
                 try:
-                    if intr and "capture_profile" in intr and intr["capture_profile"] != frame.profile:
+                    current_profile = frame.profile
+                    if (current_profile and intr and intr.get("capture_profile")
+                            and "screen_angle" not in intr["capture_profile"]):
+                        current_profile = {k: v for k, v in current_profile.items() if k != "screen_angle"}
+                    if intr and "capture_profile" in intr and intr["capture_profile"] != current_profile:
                         raise ValueError(
                             "相机、倍率或采集方式与标定不匹配。请切回原设置或为当前画面重新标定。"
                         )
@@ -495,6 +512,8 @@ def run_worker(cell, predict, stop):
                         k[:2] *= ratio[:, None]
                         k[:2, 2] += (ratio - 1) / 2
                     calibrated = intr is not None
+                    if calibrated and intr_key == "landscape_intrinsics":
+                        calibration_note = "使用已通过棋盘验证的横屏迁移内参"
                     if calibrated and intr.get("capture_profile") is None:
                         calibration_note = "使用实测内参 · 需核对镜头与采集设置"
                     active = fast_observer if pipeline == "fast" else observer
@@ -571,6 +590,7 @@ def run_worker(cell, predict, stop):
                     "source_seq": frame.seq,
                     "view": view,
                     "calibrated": calibrated,
+                    "_intrinsics_key": intr_key,
                     "calibration_note": calibration_note,
                     "ms": round(ms),
                     "p95_ms": round(float(np.percentile(times, 95))),
@@ -595,12 +615,22 @@ def run_worker(cell, predict, stop):
                             cv2.line(image, tuple(p[a]), tuple(midpoint), color, 1, cv2.LINE_AA)
                         else:
                             cv2.line(image, tuple(p[a]), tuple(p[b]), color, 1, cv2.LINE_AA)
+                for item in estimates:
+                    if "image_segments" in item:
+                        for a, b in np.rint(item["image_segments"]).astype(int):
+                            cv2.line(image, tuple(a), tuple(b), (216, 225, 32), 1, cv2.LINE_AA)
+                        for point in np.rint(item["image_vertices"]).astype(int):
+                            cv2.circle(image, tuple(point), 2, (216, 225, 32), -1, cv2.LINE_AA)
                 if reduced and (estimates or partial or pose_tracks):
                     # API points always refer to the original calibrated phone frame.
                     for item in [*estimates, *partial]:
                         item["box"] = np.rint(np.array(item["box"]) / np.tile(ratio, 2)).astype(int).tolist()
                     for item in [*estimates, *pose_tracks]:
                         item["pixels"] = ((np.array(item["pixels"]) + 0.5) / ratio - 0.5).round(1).tolist()
+                    for item in estimates:
+                        if "image_segments" in item:
+                            for field in ("image_segments", "image_vertices"):
+                                item[field] = ((np.asarray(item[field]) + 0.5) / ratio - 0.5).round(1).tolist()
                 cam = np.eye(4) if mode == "camera" else None
                 fused = []
                 if detections:
@@ -709,6 +739,7 @@ def run_worker(cell, predict, stop):
 
 def desktop_handler(cell, token, phone_pair):
     parent = handler("desk", cell.source, phone_pair, "127.0.0.1", 0, None, cell.phone_status)
+    connection_id = secrets.token_hex(8)
     pages = {"/": "robot_view.html", "/board": "screen_board.html", "/registration": "registration.html"}
 
     class Handler(parent):
@@ -716,6 +747,20 @@ def desktop_handler(cell, token, phone_pair):
             return secrets.compare_digest(self.headers.get("X-Pair", "").encode(), token.encode())
 
         def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler entry point
+            if self.path == "/":
+                from .webui import console_url
+                from .workcell_link import endpoint
+
+                try:
+                    active, _ = endpoint()
+                except (OSError, ValueError):
+                    active = None
+                if active == f"http://127.0.0.1:{self.server.server_port}" and (console := console_url()):
+                    self.send_response(302)
+                    self.send_header("Location", console + "#vision")
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    return
             if self.path == "/camera":
                 return super().do_GET()
             if self.path in pages:
@@ -738,7 +783,13 @@ def desktop_handler(cell, token, phone_pair):
                         if k in state
                     }
                 )
-            return self.send(cell.state(self.headers.get("X-After"), self.headers.get("X-Wait") == "1"))
+            state = cell.state(self.headers.get("X-After"), self.headers.get("X-Wait") == "1")
+            state["connection_id"] = connection_id
+            if self.headers.get("X-Known-Connection") == connection_id:
+                state.pop("connection", None)
+            if self.headers.get("X-Scene-Image") == "skip":
+                state.pop("sim", None)
+            return self.send(state)
 
         def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler entry point
             if self.path in ("/camera/start", "/camera/ticket", "/camera/frame"):
@@ -756,7 +807,8 @@ def desktop_handler(cell, token, phone_pair):
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                             )
                     return self.send({"started": True})
-                if self.path in ("/board/status", "/board/new", "/board/sample", "/board/solve"):
+                if self.path in ("/board/status", "/board/new", "/board/sample", "/board/solve",
+                                 "/board/migrate-cw", "/board/migrate-ccw"):
                     return self.send(cell.board(self.path.rsplit("/", 1)[1]))
                 if self.path in (
                     "/view",
@@ -968,7 +1020,19 @@ def main(argv=None):
         if connection.get("setup_url"):
             print("iPhone setup:", connection["setup_url"], flush=True)
         if not args.no_browser:
-            webbrowser.open(desk)
+            from .webui import announce_console, console_url, make_server
+            from twin import cached_env_python
+
+            console = console_url()
+            if not console:
+                panel_server, panel, console = make_server(
+                    Path(__file__).resolve().parents[1] / "twin.py", cached_env_python(), 8765)
+                stack.enter_context(panel_server)
+                stack.enter_context(announce_console(panel_server))
+                threading.Thread(target=panel_server.serve_forever, daemon=True).start()
+                stack.callback(panel.shutdown_jobs)
+                stack.callback(panel_server.shutdown)
+            webbrowser.open(console + "#vision")
         try:
             desktop.serve_forever()
         except KeyboardInterrupt:

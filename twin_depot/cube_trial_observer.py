@@ -1,12 +1,15 @@
 """Full-frame YOLO cube detection and 29 mm pose estimation in camera coordinates."""
 
 import logging
+import threading
 from pathlib import Path
 
 import cv2
 import numpy as np
 
 from .cube_pose_tracking import RigidCubeTracker
+from .cube_image_edges import corner_junctions, face_quads, image_segments, junction_pose
+from .cube_outline_search import search_outline
 from .cube_pose import FACE, HALF, _color_outline, _overlap
 from .cuboid_pnp import CENTRED, SYMMETRIES, TEMPLATES
 
@@ -27,20 +30,43 @@ def box_distance(a, b):
     return np.hypot(x + w / 2 - bx - bw / 2, y + h / 2 - by - bh / 2) / max(bw, bh)
 
 
+def _face_regions(value, mask, values):
+    level = cv2.threshold(values, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[0]
+    yield value > level
+    yield value <= level
+    # A middle-brightness face often touches both other faces. A single Otsu
+    # cut can merge two of them and lose their shared cube edge.
+    interior = cv2.erode(mask, np.ones((3, 3), np.uint8)) > 0
+    hist = np.bincount(value[interior], minlength=256).astype(float)
+    hist = cv2.GaussianBlur(hist[:, None], (1, 13), 2.5).ravel()
+    mid = hist[1:-1]
+    peaks = np.flatnonzero((mid >= hist[:-2]) & (mid > hist[2:]) & (mid >= 0.07 * hist.max())) + 1
+    modes = []
+    for i in peaks[np.argsort(-hist[peaks], kind="stable")]:
+        if all(abs(i - j) >= 10 for j in modes):
+            modes.append(i)
+            if len(modes) == 3:
+                break
+    if len(modes) >= 2:
+        modes.sort()
+        cuts = [-1, *[(a + b) // 2 for a, b in zip(modes, modes[1:])], 256]
+        for a, b in zip(cuts, cuts[1:]):
+            yield (value > a) & (value <= b)
+
+
 def visible_face_poses(value, mask, origin, k, dist):
     """Use a uniformly shaded square face as an independent planar PnP observation."""
     values = value[mask > 0]
     if len(values) < 150 or values.std() < 5:
         return
-    level = cv2.threshold(values, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[0]
-    for region in (value > level, value <= level):
+    for region in _face_regions(value, mask, values):
         contours = cv2.findContours(np.uint8(region & (mask > 0)), cv2.RETR_EXTERNAL,
                                     cv2.CHAIN_APPROX_SIMPLE)[0]
         if not contours:
             continue
         face = max(contours, key=cv2.contourArea)
         area = cv2.contourArea(face)
-        if not 0.19 * len(values) < area < 0.95 * len(values):
+        if not 0.12 * len(values) < area < 0.97 * len(values):
             continue
         quad = cv2.approxPolyDP(cv2.convexHull(face), 0.026 * cv2.arcLength(face, True), True)
         if len(quad) != 4 or abs(cv2.contourArea(quad) - area) > 0.09 * area:
@@ -48,18 +74,22 @@ def visible_face_poses(value, mask, origin, k, dist):
         pts = quad.reshape(4, 2) + origin
         if cv2.contourArea(quad, oriented=True) < 0:
             pts = pts[::-1]
-        pts = np.ascontiguousarray(pts, dtype=float)
-        ok, rotations, translations, errors = cv2.solvePnPGeneric(FACE, pts, k, dist, flags=cv2.SOLVEPNP_IPPE)
-        if not ok:
+        yield from _square_poses(pts, k, dist, max(1.0, 0.025 * np.sqrt(area)))
+
+
+def _square_poses(pts, k, dist, limit):
+    pts = np.ascontiguousarray(pts, dtype=float)
+    ok, rotations, translations, errors = cv2.solvePnPGeneric(FACE, pts, k, dist, flags=cv2.SOLVEPNP_IPPE)
+    if not ok:
+        return
+    for rv, tv, err in zip(rotations, translations, errors, strict=True):
+        r = cv2.Rodrigues(rv)[0]
+        if not np.isfinite(err.item()) or err.item() > limit or r[:, 2] @ tv.ravel() >= 0 or tv[2, 0] <= 0:
             continue
-        for rv, tv, err in zip(rotations, translations, errors, strict=True):
-            r = cv2.Rodrigues(rv)[0]
-            if err.item() > max(1.0, 0.025 * np.sqrt(area)) or r[:, 2] @ tv.ravel() >= 0:
-                continue
-            centre = np.eye(4)
-            centre[:3, :3] = r
-            centre[:3, 3] = tv.ravel() - HALF * r[:, 2]
-            yield centre
+        centre = np.eye(4)
+        centre[:3, :3] = r
+        centre[:3, 3] = tv.ravel() - HALF * r[:, 2]
+        yield centre
 
 
 def rim_poses(contour, origin, k, dist):
@@ -90,6 +120,8 @@ def rim_poses(contour, origin, k, dist):
 
 
 _NEIGHBOURS = [np.flatnonzero(np.sum(v != CENTRED, axis=1) == 1) for v in CENTRED]
+_RIDGE_SAMPLES = np.linspace(.18, .82, 7)[:, None]
+_SYMMETRIES = np.stack(SYMMETRIES)
 
 
 def ridge_support(centre, pixels, distances):
@@ -98,7 +130,7 @@ def ridge_support(centre, pixels, distances):
     nearest = np.argmin(np.sum(vertices * vertices, axis=1))
     start = pixels[nearest]
     delta = pixels[_NEIGHBOURS[nearest]] - start
-    samples = start + delta[:, None] * np.linspace(.18, .82, 7)[:, None]
+    samples = start + delta[:, None] * _RIDGE_SAMPLES
     x, y = np.moveaxis(np.rint(samples).astype(int), -1, 0)
     x = np.clip(x, 0, distances.shape[1] - 1)
     y = np.clip(y, 0, distances.shape[0] - 1)
@@ -107,14 +139,51 @@ def ridge_support(centre, pixels, distances):
     return float(np.sort(scores)[-2:].mean())
 
 
-def refine_outline(hsv, color, pose, pixels, k, dist):
+def _line_poses(lines, mask, origin, k, dist, depth):
+    for corner, segments in corner_junctions(lines):
+        candidate = junction_pose(corner, segments, origin, k, dist, depth)
+        if candidate is not None:
+            yield candidate, "three_edges", corner[None] + origin, segments + origin
+    for quad, segments in face_quads(lines, mask):
+        area = cv2.contourArea(np.float32(quad))
+        for centre in _square_poses(quad + origin, k, dist, max(1.0, 0.025 * np.sqrt(area))):
+            yield centre, "face_intersections", quad + origin, segments + origin
+
+
+def _line_pose(value, mask, origin, pose, k, dist, distances, best_score):
+    lines = image_segments(value, mask)
+    best = None
+    for centre, method, corners, segments in _line_poses(lines, mask, origin, k, dist, pose[2, 3]):
+        if abs(centre[2, 3] / pose[2, 3] - 1.) > 0.18:
+            continue
+        rv = cv2.Rodrigues(centre[:3, :3])[0]
+        pixels = cv2.projectPoints(CENTRED, rv, centre[:3, 3], k, dist)[0].reshape(-1, 2) - origin
+        hull, iou = _overlap(mask, pixels)
+        if iou < 0.39:
+            continue
+        if iou < 0.78:
+            footprint = np.zeros_like(mask)
+            cv2.fillConvexPoly(footprint, np.int32(np.rint(pixels[hull])), 255)
+            coverage = cv2.countNonZero(mask & footprint) / cv2.countNonZero(mask)
+            if coverage < 0.89:
+                continue
+        ridges = ridge_support(centre, pixels, distances)
+        if iou < 0.78 and ridges < 0.36:
+            continue
+        score = iou + 0.30 * ridges
+        if score > best_score:
+            best, best_score = (centre, method, corners, segments), score
+    return best
+
+
+def refine_outline(hsv, color, pose, pixels, k, dist, *, evidence=None):
     """Accept an independent complete silhouette only when it improves the image fit."""
-    outline = _color_outline(hsv, pixels, color)
+    outline = _color_outline(hsv, pixels, color, allow_partial=True)
     if outline is None:
         return None
     origin, mask = outline
     _, initial_iou = _overlap(mask, pixels - origin)
-    if initial_iou < 0.50:
+    if initial_iou < 0.32:
         return None
     contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
     contour = max(contours, key=cv2.contourArea)
@@ -122,8 +191,6 @@ def refine_outline(hsv, color, pose, pixels, k, dist):
     value = hsv[y:y + mask.shape[0], x:x + mask.shape[1], 2]
     candidates = list(visible_face_poses(value, mask, origin, k, dist))
     candidates.extend(rim_poses(contour, origin, k, dist))
-    if not candidates:
-        return None
     # Exclude the silhouette from the brightness edges so an inside-out cube
     # cannot score a visible face boundary by tracing its exterior instead.
     edge = cv2.Canny(value, 20, 50) & cv2.erode(mask, np.ones((5, 5), np.uint8))
@@ -131,24 +198,39 @@ def refine_outline(hsv, color, pose, pixels, k, dist):
     old_ridges = ridge_support(pose, pixels - origin, distances)
     best = None
     best_score = initial_iou + 0.12 * old_ridges + 0.025
+    line_score = initial_iou + 0.30 * old_ridges + 0.02
     for centre in candidates:
         if abs(centre[2, 3] - pose[2, 3]) > 0.15 * pose[2, 3]:
             continue
         rotation = cv2.Rodrigues(centre[:3, :3])[0]
         refined = cv2.projectPoints(CENTRED, rotation, centre[:3, 3], k, dist)[0].reshape(-1, 2)
         _, iou = _overlap(mask, refined - origin)
-        if iou < max(0.81, initial_iou - 0.015):
+        if iou < max(0.66, initial_iou - 0.015):
             continue
         ridges = ridge_support(centre, refined - origin, distances)
+        # A hand can remove part of the silhouette while leaving one complete
+        # square face and its interior edges. Require these edges to agree
+        # before accepting the lower overlap of a partially visible cube.
+        min_overlap = 0.66 if ridges >= 0.56 and ridges > old_ridges + 0.16 else 0.81
+        if iou < max(min_overlap, initial_iou - 0.015):
+            continue
         score = iou + 0.12 * ridges
         if score > best_score and ridges + 0.20 >= old_ridges:
             best_score = score
             best = centre
+            line_score = max(initial_iou + 0.30 * old_ridges + 0.02, iou + 0.30 * ridges)
+    fitted = _line_pose(value, mask, origin, pose, k, dist, distances, line_score)
+    if fitted is not None:
+        best, method, corners, segments = fitted
+        if evidence is not None:
+            evidence.update(edge_method=method, image_vertices=corners.tolist(), image_segments=segments.tolist())
     if best is None:
-        return None
+        best = search_outline(contour, origin, pose, k, dist, distances)
+        if best is None:
+            return None
     # Keep equivalent axis labels closest to the input orientation.
-    best[:3, :3] = min((best[:3, :3] @ s for s in SYMMETRIES),
-                        key=lambda r: np.linalg.norm(r - pose[:3, :3]))
+    equivalent = best[:3, :3] @ _SYMMETRIES
+    best[:3, :3] = equivalent[np.square(equivalent - pose[:3, :3]).sum(axis=(1, 2)).argmin()]
     rotation = cv2.Rodrigues(best[:3, :3])[0]
     refined = cv2.projectPoints(CENTRED, rotation, best[:3, 3], k, dist)[0].reshape(-1, 2)
     return best, refined
@@ -227,13 +309,24 @@ class TrialObserver:
             "YOLO11n-Pose + PnP" if verify_pose else MODEL_NAMES.get(Path(weights).parent.parent.name, "YOLO")
         )
         self.session = None
+        self.weights = weights
+        self.binding = None
+        self.graph_thread = None
+        self.forward_lock = threading.Lock()
         self.net = None
         self.device = "CPU · OpenCV"
         probe = np.zeros((1, 3, INPUT, INPUT), np.float32)
         if device != "cpu":
             try:
-                self._load_cuda(weights)
-                output = self.forward(probe)
+                graph = Path(weights).resolve() == POSE_WEIGHTS
+                if graph:
+                    try:
+                        self._load_cuda(weights, graph=True)
+                    except Exception as exc:
+                        logging.getLogger(__name__).info("Using standard CUDA inference: %s", exc)
+                if self.binding is None:
+                    self._load_cuda(weights)
+                    output = self.forward(probe)
             except Exception as exc:
                 if device != "auto":
                     raise
@@ -243,10 +336,10 @@ class TrialObserver:
         if self.session is None:
             self.net = cv2.dnn.readNetFromONNX(str(weights))
             output = self.forward(probe)
-        self.box_only = output.shape[1] == 8
+        self.box_only = False if self.binding is not None else output.shape[1] == 8
         self.reset()
 
-    def _load_cuda(self, weights):
+    def _load_cuda(self, weights, *, graph=False):
         import onnxruntime as ort
 
         if "CUDAExecutionProvider" not in ort.get_available_providers():
@@ -255,18 +348,40 @@ class TrialObserver:
         options = ort.SessionOptions()
         options.intra_op_num_threads = 1
         options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
-        providers = [("CUDAExecutionProvider", {"device_id": 0, "cudnn_conv_algo_search": "HEURISTIC"})]
+        providers = [("CUDAExecutionProvider", {"device_id": 0, "cudnn_conv_algo_search": "HEURISTIC",
+                                               "enable_cuda_graph": "1" if graph else "0"})]
         session = ort.InferenceSession(str(weights), sess_options=options, providers=providers)
         session.disable_fallback()
         if session.get_providers()[0] != "CUDAExecutionProvider":
             raise RuntimeError("YOLO could not activate CUDA")
         self.input = session.get_inputs()[0].name
+        if graph:
+            output = session.get_outputs()[0]
+            self.gpu_input = ort.OrtValue.ortvalue_from_shape_and_type([1, 3, INPUT, INPUT], np.float32, "cuda", 0)
+            self.gpu_output = ort.OrtValue.ortvalue_from_shape_and_type(output.shape, np.float32, "cuda", 0)
+            binding = session.io_binding()
+            binding.bind_ortvalue_input(self.input, self.gpu_input)
+            binding.bind_ortvalue_output(output.name, self.gpu_output)
+            self.binding = binding
         self.session = session
-        self.device = "CUDA:0 · ONNX Runtime"
+        self.device = "CUDA:0 · ONNX Runtime" + (" · CUDA Graph" if graph else "")
 
     def forward(self, blob):
         if self.session is not None:
-            return self.session.run(None, {self.input: blob})[0]
+            with self.forward_lock:
+                if self.binding is not None:
+                    thread = threading.current_thread()
+                    if self.graph_thread is None or self.graph_thread is thread:
+                        try:
+                            self.graph_thread = thread
+                            self.gpu_input.update_inplace(blob)
+                            self.session.run_with_iobinding(self.binding)
+                            return self.gpu_output.numpy()
+                        except Exception as exc:
+                            logging.getLogger(__name__).warning("CUDA graph unavailable, retaining CUDA: %s", exc)
+                    self.binding = self.gpu_input = self.gpu_output = None
+                    self._load_cuda(self.weights)
+                return self.session.run(None, {self.input: blob})[0]
         self.net.setInput(blob)
         return self.net.forward()
 
@@ -404,10 +519,10 @@ class TrialObserver:
             matrix, pixels = pose
             if self.verify_pose:
                 label["color_support"] = self.color_support(image, pixels, label["color"])
-                if refine_edges and label["color_support"] >= 0.55:
+                if refine_edges and label["color_support"] >= 0.40:
                     if hsv is None:
                         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-                    refined = refine_outline(hsv, label["color"], matrix, pixels, k, dist)
+                    refined = refine_outline(hsv, label["color"], matrix, pixels, k, dist, evidence=label)
                     if refined is not None:
                         matrix, pixels = refined
                         label["outline_refined"] = True

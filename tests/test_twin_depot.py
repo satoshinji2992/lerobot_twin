@@ -471,7 +471,9 @@ def test_web_panel_runs_a_shift_and_reports_the_score(monkeypatch, tmp_path):
     server, panel, url = webui.make_server(sim / "twin.py", lambda: sys.executable, port=0)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        token = re.search(r'const TOKEN = "([^"]+)"', u.urlopen(url).read().decode()).group(1)
+        page = u.urlopen(url).read().decode()
+        assert "孪生仓控制台" in page and 'id="vision-card"' in page and "<iframe" not in page
+        token = re.search(r'<meta name="twin-session" content="([^"]+)">', page).group(1)
 
         def api(path, body=None, tok=token):
             data = None if body is None else json.dumps(body).encode()
@@ -481,6 +483,12 @@ def test_web_panel_runs_a_shift_and_reports_the_score(monkeypatch, tmp_path):
 
         with pytest.raises(urllib.error.HTTPError):  # other web pages can't drive the arms
             api("/api/state", tok="wrong")
+        with pytest.raises(urllib.error.HTTPError) as denied:
+            api("/api/observation/state", tok="wrong")
+        assert denied.value.code == 403
+        with pytest.raises(urllib.error.HTTPError) as unknown:
+            api("/api/observation/api/run", {})
+        assert unknown.value.code == 404
         assert api("/api/run", {"cmd": "rm", "args": []})["ok"] is False
         assert api("/api/config", {"updates": {"player": "Web"}})["config"]["player"] == "Web"
         assert api("/api/state")["config"]["player"] == "Web"

@@ -70,9 +70,12 @@ class Hud:
 
     # ------------------------------------------------------------------------------------------
     def draw(self, viewer) -> None:
-        g = self.game
         scn = viewer.user_scn
         scn.ngeom = 0
+        self.append_overlays(scn)
+
+    def append_overlays(self, scn) -> None:
+        g = self.game
         now = g.t
         if g.phase == "sync":
             self._ghost(scn, alpha=0.28 + 0.1 * math.sin(now * 4))

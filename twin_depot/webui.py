@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import codecs
 import contextlib
+import http.client
 import json
 import os
 import secrets
@@ -25,15 +26,49 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from urllib.request import urlopen
 
 from . import system
 from .workcell_link import endpoint, read_state
+from . import workcell_link
 
 HERE = Path(__file__).resolve().parent
 PAGE = HERE / "webui.html"
 PLAY_SOURCES = ("demo", "real", "leader", "udp", "replay")
 JOBS = (*PLAY_SOURCES, "setup", "calibrate", "doctor", "tests", "import-isaac", "stream")
 LOG_LIMIT = 400_000  # characters kept for the page
+
+
+def console_url():
+    path = workcell_link.ENDPOINT.with_name("active-console.json")
+    try:
+        port = json.loads(path.read_text())
+        if type(port) is int and 0 < port < 65536:
+            url = f"http://127.0.0.1:{port}/"
+            with urlopen(url + "workspace", timeout=.35) as response:
+                if response.read(32) == b"twin-depot-workspace":
+                    return url
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+@contextlib.contextmanager
+def announce_console(server):
+    path = workcell_link.ENDPOINT.with_name("active-console.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    port = server.server_port
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as fp:
+        json.dump(port, fp)
+    os.replace(fp.name, path)
+    try:
+        yield
+    finally:
+        with contextlib.suppress(ValueError, OSError):
+            if json.loads(path.read_text()) == port:
+                path.unlink()
+
+
 PORTS_SNIPPET = (
     "import json\n"
     "from serial.tools import list_ports\n"
@@ -137,6 +172,7 @@ class Panel:
         self.job: Job | None = None
         self.vision_job: Job | None = None
         self.status_file = Path(tempfile.gettempdir()) / f"twin-depot-status-{os.getpid()}.json"
+        self.preview_file = self.status_file.with_suffix(".jpg")
         self.lock = threading.Lock()
 
     # ---------------------------------------------------------------- queries
@@ -157,6 +193,7 @@ class Panel:
                 "running": self.job.running,
                 "rc": self.job.proc.returncode,
                 "started": self.job.started,
+                "web_preview": "--web-preview" in self.job.argv and "--native-viewer" not in self.job.argv,
             }
         status = None
         if self.job and self.job.name in PLAY_SOURCES and self.status_file.exists():
@@ -230,8 +267,11 @@ class Panel:
             status = None
             if cmd in PLAY_SOURCES:
                 self.status_file.unlink(missing_ok=True)
+                self.preview_file.unlink(missing_ok=True)
                 status = self.status_file
                 args = [*args, "--stdin", "--status-file", str(status)]
+                if "--headless" not in args and "--native-viewer" not in args:
+                    args.extend(["--web-preview", str(self.preview_file)])
             self.job = Job(cmd, [py, "-u", str(self.twin_script), cmd, *args], env, status)
         return {"ok": True}
 
@@ -260,11 +300,16 @@ class Panel:
         if self.job and self.job.running:
             self.job.stop()
         self.status_file.unlink(missing_ok=True)
+        self.preview_file.unlink(missing_ok=True)
 
 
 def _handler(panel: Panel, stop_server: Callable[[], None]):
     class Handler(BaseHTTPRequestHandler):
         server_version = "TwinDepot"
+
+        def handle(self):
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                super().handle()
 
         def log_message(self, format, *args):  # noqa: A002 - keep the console quiet
             pass
@@ -288,15 +333,81 @@ def _handler(panel: Panel, stop_server: Callable[[], None]):
             self._json({"ok": False, "error": "forbidden"}, 403)
             return False
 
+        def _observation(self, path):
+            routes = {"GET": {"/state"}, "POST": {"/view", "/frame-mode", "/registration/orient", "/arm-viewer"}}
+            if path not in routes[self.command]:
+                return self._json({"error": "未知的观测接口"}, 404)
+            conn = None
+            try:
+                origin, token = endpoint()
+                if self.headers.get("X-Pair") != token:
+                    return self._json({"error": "视觉工位已切换"}, 409)
+                length = int(self.headers.get("Content-Length", 0))
+                if not 0 <= length <= 8192:
+                    return self._json({"error": "请求过长"}, 400)
+                headers = {"X-Pair": token, "Content-Type": "application/json"}
+                for name in ("X-After", "X-Wait", "X-Known-Connection", "X-Scene-Image"):
+                    if name in self.headers:
+                        headers[name] = self.headers[name]
+                conn = http.client.HTTPConnection("127.0.0.1", urlparse(origin).port, timeout=2)
+                conn.request(self.command, path, self.rfile.read(length) if length else None, headers)
+                response = conn.getresponse()
+                code, body = response.status, response.read()
+            except (OSError, ValueError, http.client.HTTPException):
+                return self._json({"error": "视觉工位未连接"}, 503)
+            finally:
+                if conn:
+                    conn.close()
+            return self._send(code, body, "application/json")
+
+        def _warehouse_frame(self):
+            if not panel.job or panel.job.name not in PLAY_SOURCES or not panel.job.running:
+                return self._send(204, b"", "image/jpeg")
+            try:
+                with panel.preview_file.open("rb") as fp:
+                    stat = os.fstat(fp.fileno())
+                    tag = f'"{stat.st_mtime_ns}-{stat.st_size}"'
+                    if tag == self.headers.get("If-None-Match"):
+                        self.send_response(304)
+                        self.end_headers()
+                        return
+                    body = fp.read()
+            except FileNotFoundError:
+                return self._send(204, b"", "image/jpeg")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("ETag", tag)
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):  # noqa: N802
             url = urlparse(self.path)
+            if url.path == "/workspace":
+                return self._send(200, b"twin-depot-workspace", "text/plain")
+            if url.path == "/warehouse":
+                page = (HERE / "warehouse.html").read_text(encoding="utf-8").replace("__TWIN_TOKEN__", panel.token)
+                return self._send(200, page.encode(), "text/html; charset=utf-8")
             if url.path in ("/", "/index.html"):
-                html = PAGE.read_text(encoding="utf-8").replace("__TWIN_TOKEN__", panel.token)
+                html = PAGE.read_text(encoding="utf-8")
+                observer = (HERE / "robot_view.html").read_text(encoding="utf-8")
+                component = observer.split("<!-- BEGIN OBSERVATION COMPONENT -->", 1)[1].split(
+                    "<!-- END OBSERVATION COMPONENT -->", 1)[0]
+                html = html.replace("__TWIN_TOKEN__", panel.token)
+                client = (HERE / "webui.js").read_text(encoding="utf-8")
+                html = html.replace("<!-- OBSERVATION COMPONENT -->", component).replace(
+                    "<!-- TWIN CLIENT -->", f"<script>{client}</script>")
+                html = html.replace("CAMERA_MODE", "等待相机内参").replace("FRAME_NAME", "相机坐标")
                 return self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
             if not url.path.startswith("/api/") or not self._authorized():
                 return None if url.path.startswith("/api/") else self._send(404, b"not found", "text/plain")
             if url.path == "/api/state":
                 return self._json(panel.state())
+            if url.path == "/api/warehouse.jpg":
+                return self._warehouse_frame()
+            if url.path.startswith("/api/observation/"):
+                return self._observation(url.path.removeprefix("/api/observation"))
             if url.path == "/api/log":
                 since = int(parse_qs(url.query).get("since", ["0"])[0] or 0)
                 if not panel.job:
@@ -312,12 +423,14 @@ def _handler(panel: Panel, stop_server: Callable[[], None]):
         def do_POST(self):  # noqa: N802
             if not self._authorized():
                 return
+            path = urlparse(self.path).path
+            if path.startswith("/api/observation/"):
+                return self._observation(path.removeprefix("/api/observation"))
             try:
                 n = int(self.headers.get("Content-Length", "0"))
                 body = json.loads(self.rfile.read(n) or b"{}")
             except ValueError:
                 return self._json({"ok": False, "error": "bad json"}, 400)
-            path = urlparse(self.path).path
             if path == "/api/run":
                 return self._json(panel.run(str(body.get("cmd", "")), list(body.get("args", []))))
             if path == "/api/vision":
@@ -366,7 +479,8 @@ def serve(
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:
-        server.serve_forever(poll_interval=0.3)
+        with announce_console(server):
+            server.serve_forever(poll_interval=0.3)
     except KeyboardInterrupt:
         pass
     finally:
