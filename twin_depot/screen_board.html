@@ -36,10 +36,6 @@ details{border-top:1px solid #ced9ce;margin-top:14px;padding-top:8px}summary{cur
 <h2>验证与应用</h2><p>每五张留一张验证，用其余视角拟合。通过后应用到当前三维服务。</p>
 <div class="row"><button id="solve" class="primary" disabled>计算并应用内参</button><button id="new">新开一组</button></div>
 <dl id="result"></dl><small id="applied"></small>
-<h2>用竖屏标定生成横屏内参</h2>
-<p>原标定为正向竖拍时，保持同一镜头和倍率，横握手机。自动采集至少四个不同视角，让棋盘覆盖画面四边，再点暂停。</p>
-<div class="row"><label>此时手机顶部朝向 <select id="turn"><option value="">请选择</option><option value="ccw">左边</option><option value="cw">右边</option></select></label>
-<button id="migrate" disabled>验证并应用横屏内参</button></div>
 <details><summary>拍摄设置与误差</summary><p>保持视频尺寸、镜头、焦距与正式运行一致。请使用平面屏幕，避免反光、条纹和弯曲。边缘过渡越窄越清晰，此处拒收超过 3.5 px 的样本。验证误差单位为像素，机械臂坐标误差需另外实测。</p></details>
 </aside></main>
 <script>
@@ -62,7 +58,6 @@ document.addEventListener('fullscreenchange',()=>$('#full').textContent=document
 function buttons(){
  $('#start').disabled=active||busy;$('#stop').disabled=!active;
  $('#solve').disabled=busy||active||count<minimum;$('#new').disabled=busy||active;$('#full').disabled=active;
- $('#migrate').disabled=busy||active||count<4||!$('#turn').value;
 }
 function update(j){
  count=j.count;minimum=j.minimum||15;
@@ -80,10 +75,7 @@ function update(j){
    if(val.excluded_images?.length)rows.push(['排除的训练图',val.excluded_images.join('、')]);
    for(const [k,v] of rows){const term=document.createElement('dt'),value=document.createElement('dd');term.textContent=k;value.textContent=v;result.append(term,value)}
  }
- const metrics=[];
- if(j.applied_rms_px!=null)metrics.push('原标定拟合 RMS '+Number(j.applied_rms_px).toFixed(3)+' px');
- if(j.landscape_validation)metrics.push('横屏迁移验证 RMS '+j.landscape_validation.heldout_rms_px+' px（'+j.landscape_validation.heldout_views+' 个视角）');
- $('#applied').textContent=metrics.join(' · ');
+ $('#applied').textContent=j.applied_rms_px!=null?'已保存标定的拟合 RMS '+Number(j.applied_rms_px).toFixed(3)+' px':'';
 }
 async function api(action){
  const r=await fetch('/board/'+action,{method:'POST',headers:{'X-Pair':pin},signal:AbortSignal.timeout(25000)});
@@ -100,8 +92,6 @@ async function sample(){if(!active)return;await send('sample');if(active&&count<
 $('#start').onclick=()=>{active=true;sample()};$('#stop').onclick=()=>{active=false;clearTimeout(timer);buttons()};
 $('#solve').onclick=()=>{ $('output').textContent='正在拟合并验证内参…';send('solve')};
 $('#new').onclick=()=>{if(!count||confirm('开始新的采集组？之前采集的原始照片仍保存在电脑上。'))send('new')};
-$('#turn').onchange=buttons;
-$('#migrate').onclick=()=>send('migrate-'+$('#turn').value);
 window.addEventListener('pagehide',()=>{active=false;clearTimeout(timer)});
 send('status');
 </script></html>

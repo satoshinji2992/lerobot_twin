@@ -513,7 +513,7 @@ def run_worker(cell, predict, stop):
                         k[:2, 2] += (ratio - 1) / 2
                     calibrated = intr is not None
                     if calibrated and intr_key == "landscape_intrinsics":
-                        calibration_note = "使用已通过棋盘验证的横屏迁移内参"
+                        calibration_note = "使用已验证的相机内参"
                     if calibrated and intr.get("capture_profile") is None:
                         calibration_note = "使用实测内参 · 需核对镜头与采集设置"
                     active = fast_observer if pipeline == "fast" else observer
