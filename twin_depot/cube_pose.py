@@ -5,15 +5,11 @@ import math
 import cv2
 import numpy as np
 
+from .workcell_link import COLORS
+
 HALF = 14.5
 FACE = np.float64([[-HALF, HALF, 0], [HALF, HALF, 0], [HALF, -HALF, 0], [-HALF, -HALF, 0]])
 VERTICES = np.vstack((FACE, FACE - [0.0, 0.0, 2 * HALF]))
-COLORS = {
-    "red": (0.88, 0.10, 0.08),
-    "green": (0.12, 0.72, 0.27),
-    "blue": (0.12, 0.39, 0.85),
-    "yellow": (0.95, 0.78, 0.10),
-}
 
 
 def camera_matrix(shape, config):

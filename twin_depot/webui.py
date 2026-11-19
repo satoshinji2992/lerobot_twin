@@ -27,6 +27,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import system
+from .workcell_link import endpoint, read_state
 
 HERE = Path(__file__).resolve().parent
 PAGE = HERE / "webui.html"
@@ -134,6 +135,7 @@ class Panel:
         self.env_python = env_python
         self.token = secrets.token_urlsafe(18)
         self.job: Job | None = None
+        self.vision_job: Job | None = None
         self.status_file = Path(tempfile.gettempdir()) / f"twin-depot-status-{os.getpid()}.json"
         self.lock = threading.Lock()
 
@@ -188,6 +190,26 @@ class Panel:
         return {"ok": True, "ports": ports}
 
     # ---------------------------------------------------------------- actions
+    def vision(self, start=False):
+        try:
+            origin, token = endpoint()
+            read_state(origin, token)
+            return {"url": f"{origin}/#{token}"}
+        except (ValueError, OSError):
+            pass
+        with self.lock:
+            if self.vision_job and self.vision_job.running:
+                return {"starting": True}
+            if start:
+                env = {**os.environ, "PYTHONUTF8": "1", "PYTHONUNBUFFERED": "1"}
+                env.pop("TWIN_IN_ENV", None)
+                self.vision_job = Job("workcell", [sys.executable, "-u", str(self.twin_script),
+                                      "workcell", "--no-browser"], env, None)
+                return {"starting": True}
+            if self.vision_job:
+                return {"error": self.vision_job.read(0)[0][-600:]}
+            return {}
+
     def run(self, cmd: str, args: list[str]) -> dict:
         if cmd not in JOBS:
             return {"ok": False, "error": f"unknown command {cmd}"}
@@ -233,6 +255,8 @@ class Panel:
         return {"ok": True, "config": cfg}
 
     def shutdown_jobs(self) -> None:
+        if self.vision_job and self.vision_job.running:
+            self.vision_job.stop()
         if self.job and self.job.running:
             self.job.stop()
         self.status_file.unlink(missing_ok=True)
@@ -281,6 +305,8 @@ def _handler(panel: Panel, stop_server: Callable[[], None]):
                 return self._json({"text": text, "next": nxt, "reset": since > nxt})
             if url.path == "/api/ports":
                 return self._json(panel.serial_ports())
+            if url.path == "/api/vision":
+                return self._json(panel.vision())
             return self._json({"ok": False, "error": "not found"}, 404)
 
         def do_POST(self):  # noqa: N802
@@ -294,6 +320,8 @@ def _handler(panel: Panel, stop_server: Callable[[], None]):
             path = urlparse(self.path).path
             if path == "/api/run":
                 return self._json(panel.run(str(body.get("cmd", "")), list(body.get("args", []))))
+            if path == "/api/vision":
+                return self._json(panel.vision(start=True))
             if path == "/api/input":
                 return self._json(panel.send(str(body.get("line", ""))))
             if path == "/api/stop":

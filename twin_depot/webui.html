@@ -123,6 +123,15 @@ pre#log {
 </header>
 
 <main>
+  <details class="card" id="vision-card" style="grid-column:1/-1">
+    <summary style="cursor:pointer;font-weight:700">相机与方块定位</summary>
+    <div class="row" style="margin:12px 0">
+      <button class="btn" id="vision-start" hidden>启用视觉工位</button>
+      <span id="vision-status" role="status"></span>
+    </div>
+    <iframe id="vision-frame" title="相机与方块定位" allow="fullscreen; camera" hidden
+      style="width:100%;height:75vh;border:0"></iframe>
+  </details>
   <div class="col">
     <section class="card" id="play-card">
       <h2>开始一班 <span class="sub">游戏窗口会在桌面上弹出</span></h2>
@@ -270,6 +279,32 @@ async function api(path, body) {
   return r.json();
 }
 function flash(el, text, bad) { el.textContent = text; el.style.color = bad ? "var(--bad)" : ""; }
+
+let visionRequest = 0;
+async function updateVision(start = false) {
+  const id = ++visionRequest;
+  const frame = $("vision-frame");
+  while ($("vision-card").open && id === visionRequest) {
+    let result;
+    try { result = await api("/api/vision", start ? {} : undefined); }
+    catch { result = {error: "控制台连接中断"}; }
+    if (id !== visionRequest || !$("vision-card").open) return;
+    start = false;
+    $("vision-start").hidden = !!(result.url || result.starting);
+    frame.hidden = !result.url;
+    $("vision-status").textContent = result.url ? "在下方连接相机。启动班次后，方块会同步显示在仓库场景。" :
+      result.starting ? "正在启动视觉工位…" : (result.error || "视觉工位尚未运行");
+    if (result.url) { frame.src = result.url; return; }
+    if (!result.starting) return;
+    await new Promise(resolve => setTimeout(resolve, 800));
+  }
+}
+$("vision-card").ontoggle = () => {
+  if ($("vision-card").open) updateVision();
+  else { ++visionRequest; $("vision-frame").removeAttribute("src"); }
+};
+$("vision-start").onclick = () => updateVision(true);
+if (location.hash === "#vision") $("vision-card").open = true;
 
 // ------------------------------------------------------------------ mode tabs + options
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {

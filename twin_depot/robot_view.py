@@ -960,6 +960,9 @@ def main(argv=None):
         worker = threading.Thread(target=run_worker, args=(cell, predict, done), daemon=True)
         worker.start()
         desk = f"http://127.0.0.1:{args.port}/#{token}"
+        from .workcell_link import publish
+
+        publish(args.port, token)
         print(desk, flush=True)
         print(f"Pair: {phone_pair}", flush=True)
         if connection.get("setup_url"):

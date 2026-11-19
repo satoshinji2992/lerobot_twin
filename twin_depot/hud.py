@@ -91,6 +91,15 @@ class Hud:
                 "BLOCKED",
             )
 
+    def draw_vision(self, scn, poses) -> None:
+        from .workcell_link import COLORS
+
+        for color, pose in poses:
+            size = (.0145,) * 3 if color else (.035, .025, .009)
+            rgba = (*COLORS[color], .85) if color else (.3, .6, .8, .8)
+            self._geom(scn, mujoco.mjtGeom.mjGEOM_BOX, size, pose[:3, 3] / 1000,
+                       rgba, mat=pose[:3, :3])
+
     def _geom(self, scn, gtype, size, pos, rgba, label: str | None = None, mat=None) -> None:
         if scn.ngeom >= scn.maxgeom:
             return
@@ -249,7 +258,7 @@ class Hud:
         self.confetti = alive
 
     # ------------------------------------------------------------------------------------------
-    def texts(self, now: float):
+    def texts(self, now: float, vision: str = ""):
         """Overlay text. Call *outside* ``viewer.lock()`` - ``set_texts`` takes the same lock."""
         g, st, tele = self.game, self.game.stats, self.game.tele
         out = []
@@ -284,6 +293,9 @@ class Hud:
             f"{tele.source}\n{tele.rate_hz:4.0f} Hz\n{tele.age_ms:4.0f} ms\n{tele.sync_err_deg:4.1f} deg{blocked}\n{held}\n"
             f"{'ON' if g.assist else 'OFF'} / {'ON' if g.hints else 'OFF'}"
         )
+        if vision:
+            tl += "\nVISION"
+            tr += "\n" + vision
         out.append((FONT.mjFONTSCALE_150, GRID.mjGRID_TOPRIGHT, tl, tr))
         log = "\n".join(e.text for e in list(g.event_log)[-4:]) or " "
         out.append((FONT.mjFONTSCALE_150, GRID.mjGRID_BOTTOMLEFT, "EVENTS", log))

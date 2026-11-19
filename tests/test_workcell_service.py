@@ -138,7 +138,8 @@ def launch_workcell(tmp, initial_config):
         proc = subprocess.Popen(
             command,
             cwd=ROOT,
-            env={**os.environ, "PYTHONUTF8": "1", "PYTHONUNBUFFERED": "1"},
+            env={**os.environ, "PYTHONUTF8": "1", "PYTHONUNBUFFERED": "1",
+                 "TWIN_WORKCELL_ENDPOINT_FILE": str(tmp / "active-workcell.json")},
             stdout=output,
             stderr=subprocess.STDOUT,
             start_new_session=os.name != "nt",

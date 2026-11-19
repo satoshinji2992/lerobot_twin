@@ -12,7 +12,7 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 
-from .cube_pose import COLORS
+from .workcell_link import COLORS, observation_poses
 from .assets import ensure_so101_assets
 
 
@@ -38,23 +38,9 @@ def make_model():
 
 def place(model, data, state):
     data.mocap_pos[:] = [0, 0, -3]
-    if not state.get("fresh"):
-        return "Waiting for a fresh camera frame"
-    if state.get("frame_mode") == "camera":
-        # Illustrative mount beside the arm, units mm; optical +Z points along world +Y.
-        camera = np.array([[1, 0, 0, 200], [0, 0, 1, -220], [0, -1, 0, 180], [0, 0, 0, 1]])
-        world_from_rows = camera
-        label = "Camera-relative preview (arm base unregistered)"
-    elif state.get("registered") and state.get("camera_pose") is not None:
-        camera = np.asarray(state["camera_pose"])
-        world_from_rows = np.eye(4)
-        label = "Registered arm base"
-    else:
-        return "Waiting for base registration and reference"
-    poses = [(None, camera)]
-    poses.extend((r["color"], world_from_rows @ r["pose"]) for r in state.get("rows", []))
-    tracks = state.get("pose_tracks", state.get("completions", []))
-    poses.extend((r["color"], camera @ r["camera_pose"]) for r in tracks)
+    poses, label = observation_poses(state)
+    if not poses:
+        return label
     for i, (color, pose) in enumerate(poses[:13]):
         idx = model.body(f"observation{i}").mocapid[0]
         data.mocap_pos[idx] = pose[:3, 3] / 1000

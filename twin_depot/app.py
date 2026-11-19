@@ -447,6 +447,7 @@ def run_viewer(sess: Session) -> None:
     import mujoco.viewer
 
     from .hud import Hud
+    from .workcell_link import endpoint, observation_poses, read_state
 
     hud = Hud(sess.m, sess.game, sess.autopilot.home)
     keymap = {
@@ -469,9 +470,25 @@ def run_viewer(sess: Session) -> None:
     with mujoco.viewer.launch_passive(
         sess.m, sess.d, key_callback=on_key, show_left_ui=False, show_right_ui=False
     ) as v:
+        vision_stop = threading.Event()
+        latest = ([], "")
+
+        def read_vision():
+            nonlocal latest
+            while not vision_stop.is_set():
+                try:
+                    state = read_state(*endpoint())
+                    latest = observation_poses(state)
+                    delay = 0.05 if state.get("fresh") else 0.3
+                except (OSError, ValueError):
+                    latest = ([], "")
+                    delay = 1
+                vision_stop.wait(delay)
+
+        threading.Thread(target=read_vision, daemon=True).start()
         with v.lock():
             v.cam.lookat[:] = (0.12, 0.02, 0.02)
-            v.cam.distance, v.cam.azimuth, v.cam.elevation = 0.95, 0.0, -38.0
+            v.cam.distance, v.cam.azimuth, v.cam.elevation = 0.95, 225.0, -38.0
             v.opt.sitegroup[:] = 0
         print(
             "[twin] viewer up. Terminal: Enter=start a=assist h=hints r=reset c=call AGV t=call tug q=quit",
@@ -483,12 +500,15 @@ def run_viewer(sess: Session) -> None:
                 events = sess.frame()
                 hud.on_events(events, sess.game.t)
                 hud.draw(v)
+                poses, label = latest
+                hud.draw_vision(v.user_scn, poses)
             v.sync()
             # after sync(): set_texts blocks until the render thread has consumed the previous texts
-            v.set_texts(hud.texts(sess.game.t))
+            v.set_texts(hud.texts(sess.game.t, vision=label))
             if sess.args.duration and sess.game.t >= sess.args.duration:
                 break
             time.sleep(max(0.0, sess.frame_dt - (time.perf_counter() - t0)))
+        vision_stop.set()
 
 
 def run_headless(sess: Session, realtime: bool) -> None:

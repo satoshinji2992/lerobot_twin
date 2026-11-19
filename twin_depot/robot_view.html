@@ -966,6 +966,7 @@
         blue: ['蓝色', '#3876cb'],
         yellow: ['黄色', '#b38212'],
       };
+      document.getElementById('launchArm').hidden = window.parent !== window;
       document.getElementById('launchArm').onclick=async function(){
         const msg=document.getElementById('armMessage');
         this.disabled=true; msg.hidden=false; msg.textContent='正在打开 MuJoCo…';
