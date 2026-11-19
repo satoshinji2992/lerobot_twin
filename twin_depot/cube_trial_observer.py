@@ -7,7 +7,8 @@ import cv2
 import numpy as np
 
 from .cube_pose_tracking import RigidCubeTracker
-from .cuboid_pnp import CENTRED
+from .cube_pose import FACE, HALF, _color_outline, _overlap
+from .cuboid_pnp import CENTRED, SYMMETRIES, TEMPLATES
 
 COLORS = ("red", "green", "blue", "yellow")
 INPUT = 384
@@ -24,6 +25,133 @@ def box_distance(a, b):
     if not 0.35 < w * h / (bw * bh) < 2.9:
         return float("inf")
     return np.hypot(x + w / 2 - bx - bw / 2, y + h / 2 - by - bh / 2) / max(bw, bh)
+
+
+def visible_face_poses(value, mask, origin, k, dist):
+    """Use a uniformly shaded square face as an independent planar PnP observation."""
+    values = value[mask > 0]
+    if len(values) < 150 or values.std() < 5:
+        return
+    level = cv2.threshold(values, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[0]
+    for region in (value > level, value <= level):
+        contours = cv2.findContours(np.uint8(region & (mask > 0)), cv2.RETR_EXTERNAL,
+                                    cv2.CHAIN_APPROX_SIMPLE)[0]
+        if not contours:
+            continue
+        face = max(contours, key=cv2.contourArea)
+        area = cv2.contourArea(face)
+        if not 0.19 * len(values) < area < 0.95 * len(values):
+            continue
+        quad = cv2.approxPolyDP(cv2.convexHull(face), 0.026 * cv2.arcLength(face, True), True)
+        if len(quad) != 4 or abs(cv2.contourArea(quad) - area) > 0.09 * area:
+            continue
+        pts = quad.reshape(4, 2) + origin
+        if cv2.contourArea(quad, oriented=True) < 0:
+            pts = pts[::-1]
+        pts = np.ascontiguousarray(pts, dtype=float)
+        ok, rotations, translations, errors = cv2.solvePnPGeneric(FACE, pts, k, dist, flags=cv2.SOLVEPNP_IPPE)
+        if not ok:
+            continue
+        for rv, tv, err in zip(rotations, translations, errors, strict=True):
+            r = cv2.Rodrigues(rv)[0]
+            if err.item() > max(1.0, 0.025 * np.sqrt(area)) or r[:, 2] @ tv.ravel() >= 0:
+                continue
+            centre = np.eye(4)
+            centre[:3, :3] = r
+            centre[:3, 3] = tv.ravel() - HALF * r[:, 2]
+            yield centre
+
+
+def rim_poses(contour, origin, k, dist):
+    """A six-edge cube rim has two geometrically distinct corner assignments."""
+    hull = cv2.convexHull(contour)
+    if cv2.contourArea(contour) < 0.88 * cv2.contourArea(hull):
+        return
+    perimeter = cv2.arcLength(hull, True)
+    for fraction in (0.01, 0.016, 0.024, 0.034):
+        polygon = cv2.approxPolyDP(hull, max(0.8, fraction * perimeter), True)
+        if len(polygon) < 6:
+            return
+        if len(polygon) > 6:
+            continue
+        corners = np.ascontiguousarray(polygon.reshape(-1, 2) + origin, dtype=float)
+        for template in TEMPLATES[6]:
+            ok, rv, tv = cv2.solvePnP(template, corners, k, dist, flags=cv2.SOLVEPNP_SQPNP)
+            if not ok or tv[2, 0] < 58:
+                continue
+            rim = cv2.projectPoints(template, rv, tv, k, dist)[0].reshape(-1, 2)
+            if np.linalg.norm(rim - corners, axis=1).mean() > max(1.5, 0.012 * perimeter):
+                continue
+            candidate = np.eye(4)
+            candidate[:3, :3] = cv2.Rodrigues(rv)[0]
+            candidate[:3, 3] = tv.ravel()
+            yield candidate
+        return
+
+
+_NEIGHBOURS = [np.flatnonzero(np.sum(v != CENTRED, axis=1) == 1) for v in CENTRED]
+
+
+def ridge_support(centre, pixels, distances):
+    """Test the three ridges meeting at the nearest vertex against interior image edges."""
+    vertices = CENTRED @ centre[:3, :3].T + centre[:3, 3]
+    nearest = np.argmin(np.sum(vertices * vertices, axis=1))
+    start = pixels[nearest]
+    delta = pixels[_NEIGHBOURS[nearest]] - start
+    samples = start + delta[:, None] * np.linspace(.18, .82, 7)[:, None]
+    x, y = np.moveaxis(np.rint(samples).astype(int), -1, 0)
+    x = np.clip(x, 0, distances.shape[1] - 1)
+    y = np.clip(y, 0, distances.shape[0] - 1)
+    scores = np.mean(np.maximum(0, 1 - distances[y, x] / 3), axis=1)
+    scores[np.linalg.norm(delta, axis=1) < 6] = 0
+    return float(np.sort(scores)[-2:].mean())
+
+
+def refine_outline(hsv, color, pose, pixels, k, dist):
+    """Accept an independent complete silhouette only when it improves the image fit."""
+    outline = _color_outline(hsv, pixels, color)
+    if outline is None:
+        return None
+    origin, mask = outline
+    _, initial_iou = _overlap(mask, pixels - origin)
+    if initial_iou < 0.50:
+        return None
+    contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
+    contour = max(contours, key=cv2.contourArea)
+    x, y = origin
+    value = hsv[y:y + mask.shape[0], x:x + mask.shape[1], 2]
+    candidates = list(visible_face_poses(value, mask, origin, k, dist))
+    candidates.extend(rim_poses(contour, origin, k, dist))
+    if not candidates:
+        return None
+    # Exclude the silhouette from the brightness edges so an inside-out cube
+    # cannot score a visible face boundary by tracing its exterior instead.
+    edge = cv2.Canny(value, 20, 50) & cv2.erode(mask, np.ones((5, 5), np.uint8))
+    distances = cv2.distanceTransform(np.uint8(edge == 0), cv2.DIST_L2, 3)
+    old_ridges = ridge_support(pose, pixels - origin, distances)
+    best = None
+    best_score = initial_iou + 0.12 * old_ridges + 0.025
+    for centre in candidates:
+        if abs(centre[2, 3] - pose[2, 3]) > 0.15 * pose[2, 3]:
+            continue
+        rotation = cv2.Rodrigues(centre[:3, :3])[0]
+        refined = cv2.projectPoints(CENTRED, rotation, centre[:3, 3], k, dist)[0].reshape(-1, 2)
+        _, iou = _overlap(mask, refined - origin)
+        if iou < max(0.81, initial_iou - 0.015):
+            continue
+        ridges = ridge_support(centre, refined - origin, distances)
+        score = iou + 0.12 * ridges
+        if score > best_score and ridges + 0.20 >= old_ridges:
+            best_score = score
+            best = centre
+    if best is None:
+        return None
+    # Keep equivalent axis labels closest to the input orientation.
+    best[:3, :3] = min((best[:3, :3] @ s for s in SYMMETRIES),
+                        key=lambda r: np.linalg.norm(r - pose[:3, :3]))
+    rotation = cv2.Rodrigues(best[:3, :3])[0]
+    refined = cv2.projectPoints(CENTRED, rotation, best[:3, 3], k, dist)[0].reshape(-1, 2)
+    return best, refined
 
 
 def load_trial(name, device, completion=None):
@@ -221,7 +349,7 @@ class TrialObserver:
                 accepted.append(p)
         return accepted
 
-    def observe(self, image, predict, k, dist, at, *, reference=False):
+    def observe(self, image, predict, k, dist, at, *, reference=False, refine_edges=True):
         if reference:
             raise ValueError("全图 YOLO 模式使用相机坐标")
         h, w = image.shape[:2]
@@ -250,6 +378,7 @@ class TrialObserver:
         xywh[:, :2] -= xywh[:, 2:] / 2 + [left, top]
         xywh /= np.array([nw / w, nh / h, nw / w, nh / h])
         indices = cv2.dnn.NMSBoxesBatched(xywh.tolist(), conf.tolist(), ids.tolist(), 0.25, 0.5)
+        hsv = None
         for i in np.asarray(indices).ravel():
             x, y, bw, bh = xywh[i]
             lo = np.clip([x, y], [0, 0], [w - 1, h - 1])
@@ -275,6 +404,13 @@ class TrialObserver:
             matrix, pixels = pose
             if self.verify_pose:
                 label["color_support"] = self.color_support(image, pixels, label["color"])
+                if refine_edges and label["color_support"] >= 0.55:
+                    if hsv is None:
+                        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+                    refined = refine_outline(hsv, label["color"], matrix, pixels, k, dist)
+                    if refined is not None:
+                        matrix, pixels = refined
+                        label["outline_refined"] = True
             self.estimates.append(
                 {
                     **label,

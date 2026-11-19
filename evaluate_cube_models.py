@@ -6,7 +6,8 @@ import time
 
 import cv2
 import numpy as np
-from cube_model_trial import MODELS, ROOT, SIZE, TRIAL
+from cube_model_trial import MODELS, NAMES, ROOT, SIZE, TRIAL, backgrounds, render
+from twin_depot.cuboid_pnp import SYMMETRIES
 from twin_depot.cube_completion import Completion
 from twin_depot.cube_observer import FastObserver
 from twin_depot.cube_pose import camera_matrix
@@ -204,11 +205,56 @@ def evaluate(kind):
     print(kind, json.dumps(scores), flush=True)
 
 
+def evaluate_angles():
+    """Paired orientation errors on new scenes independent of the training seeds."""
+    rng = np.random.default_rng(817421)
+    backdrop = backgrounds()
+    model = load_trial("pose", "cuda")
+    records = []
+    total = 0
+    matched = [0, 0]
+    for _ in range(400):
+        image, objects, k = render(rng, *backdrop)
+        total += len(objects)
+        quality = int(rng.integers(65, 94))
+        jpg = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, quality])[1]
+        frame = cv2.imdecode(jpg, cv2.IMREAD_COLOR)
+        truth = [dict(uv=(o["lo"] + o["hi"]) / 2, color=NAMES[o["cls"]]) for o in objects]
+        predictions = []
+        for mode in (False, True):
+            model.reset()
+            model.observe(frame, None, k, None, 1., refine_edges=mode)
+            rows = [dict(row, uv=np.mean(row["pixels"], axis=0)) for row in model.estimates]
+            pairs = match(rows, truth, 20)
+            matched[int(mode)] += len(pairs)
+            predictions.append({j: rows[i] for j, i in pairs.items()})
+        old, new = predictions
+        for j in old.keys() & new.keys():
+            reference = model.fit(objects[j]["pts"], k, None, SIZE)[0][:3, :3]
+            angles = []
+            for row in (old[j], new[j]):
+                delta = reference.T @ np.array(row["camera_pose"])[:3, :3]
+                cosine = max((np.trace(delta @ symmetry) - 1) / 2 for symmetry in SYMMETRIES)
+                angles.append(np.rad2deg(np.arccos(np.clip(cosine, -1, 1))))
+            records.append([*angles, bool(new[j].get("outline_refined"))])
+    errors = np.array(records).reshape(-1, 3)
+    print(f"Targets: {total}; matches before/after: {matched}")
+    for name, sample in (("all paired", errors), ("refined", errors[errors[:, 2] > 0])):
+        if len(sample):
+            print(name, len(sample), "P50/P95 degrees (before, after):",
+                  np.percentile(sample[:, :2], [50, 95], axis=0).round(2).tolist(),
+                  "under 10 degrees:", (sample[:, :2] < 10).sum(axis=0).tolist())
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("models", nargs="*", help="current, detect, pose-raw, pose, vit or rescue")
+    parser.add_argument("--angle-check", action="store_true", help="paired symmetry-aware pose benchmark")
     args = parser.parse_args()
     cv2.setNumThreads(2)
+    if args.angle_check:
+        evaluate_angles()
+        raise SystemExit(0)
     for kind in args.models or ("current", "pose-raw", *MODELS, "rescue"):
         if kind not in ("current", "pose-raw", *MODELS, "rescue"):
             parser.error(f"Unknown model: {kind}")

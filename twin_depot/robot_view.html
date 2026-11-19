@@ -1617,9 +1617,10 @@
         if (isFrame || !hasFrame || paused) {
           const selection=el('positionMode').value;
           const displayRows=rigid && selection==='raw_xyz' ? completions.map(c => ({
-            color:c.color,track_id:c.track_id,raw_xyz:c.camera_xyz,sourceLabel:'本帧原始 PnP'
+            color:c.color,track_id:c.track_id,raw_xyz:c.camera_xyz,
+            sourceLabel:c.outline_refined?'本帧 PnP · 棱边校正':'本帧 PnP · 网络角点'
           })) : rigid ? poseTracks.map(p => {
-            const label={observed:'卡尔曼融合',depth_hold:'深度保持 '+p.depth_age_ms+' ms',
+            const label={observed:completions[p.measurement_index]?.outline_refined?'卡尔曼融合 · 棱边校正':'卡尔曼融合 · 网络角点',depth_hold:'深度保持 '+p.depth_age_ms+' ms',
               predicted:'遮挡预测 '+p.missing_ms+' ms',held:'遮挡保持 '+p.missing_ms+' ms'}[p.source];
             return {color:p.color,track_id:p.track_id,xyz:p.camera_xyz,lead_xyz:p.lead_camera_xyz,
               sourceLabel:selection==='lead_xyz'?(vec(p.lead_camera_xyz)?'外推 +'+p.lead_ms+' ms':label+' · 无外推'):label};

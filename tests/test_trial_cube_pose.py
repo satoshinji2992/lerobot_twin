@@ -1,8 +1,26 @@
 import cv2
 import numpy as np
 import pytest
-from twin_depot.cube_trial_observer import RescueObserver, TrialObserver
-from twin_depot.cuboid_pnp import CENTRED
+from twin_depot.cube_trial_observer import RescueObserver, TrialObserver, refine_outline
+from twin_depot.cuboid_pnp import CENTRED, SYMMETRIES
+
+
+def test_image_outline_corrects_self_consistent_thirty_degree_error():
+    k = np.array([[800., 0, 320], [0, 800, 360], [0, 0, 1]])
+    truth = cv2.Rodrigues(np.array([0.35, -0.30, 0.10]))[0]
+    seed = np.eye(4)
+    seed[:3, :3] = truth @ cv2.Rodrigues(np.array([0., 0., np.pi / 6]))[0]
+    seed[:3, 3] = [0, 0, 350]
+    def project(r):
+        return cv2.projectPoints(CENTRED, cv2.Rodrigues(r)[0], seed[:3, 3], k, None)[0].reshape(-1, 2)
+    hsv = np.zeros((720, 640, 3), np.uint8)
+    wrong = project(seed[:3, :3])
+    assert refine_outline(hsv, "green", seed, wrong, k, None) is None
+    cv2.fillConvexPoly(hsv, cv2.convexHull(project(truth).astype(np.int32)), (62, 220, 160))
+    refined, pixels = refine_outline(hsv, "green", seed, wrong, k, None)
+    cosine = max((np.trace(truth.T @ refined[:3, :3] @ s) - 1) / 2 for s in SYMMETRIES)
+    assert np.degrees(np.arccos(np.clip(cosine, -1, 1))) < 3
+    assert np.linalg.norm(refined[:3, 3] - seed[:3, 3]) < 4
 
 
 def test_full_frame_pose_uses_metric_centre_and_rejects_invalid_geometry():
