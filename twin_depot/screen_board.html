@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>屏幕标定 · 方块工作台</title>
+<style>
+:root{color-scheme:light;font:15px/1.55 system-ui,"Microsoft YaHei",sans-serif;color:#213a32;background:#f3f6f2}
+*{box-sizing:border-box}body{margin:0}main{height:100dvh;display:grid;grid-template-columns:minmax(0,1fr) clamp(300px,27vw,380px)}
+section{min-width:0;min-height:0;background:#fff;display:grid;place-items:center;overflow:hidden}canvas{display:block}
+aside{min-height:0;overflow:auto;padding:24px clamp(16px,2vw,28px);border-left:1px solid #cdd8ce}
+h1,h2,p{margin:0}h1{font-size:22px;margin:10px 0}h2{font-size:15px;margin:17px 0 6px}
+p,.hint,small{font-size:13px;color:#476354}a{color:#175d46}button{font:inherit;font-size:14px;border:1px solid #98afa0;border-radius:5px;padding:7px 11px;background:#fff;color:#214535;cursor:pointer}
+button:disabled{opacity:.46;cursor:default}.primary{background:#235a46;color:white;border-color:#235a46}.row{display:flex;flex-wrap:wrap;gap:7px;margin:8px 0}
+output{display:block;background:#e4ede4;padding:9px 11px;border-radius:4px;min-height:3.2em;line-height:1.4}
+progress{display:block;accent-color:#38705b;width:100%;height:9px}.count{font-weight:650;font-variant-numeric:tabular-nums}
+.meters{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.meters div{border-top:1px solid #ced9ce;padding-top:6px}
+.meters span,dl dt{color:#526a5d;font-size:12px}.meters strong{display:block;font-variant-numeric:tabular-nums}
+#map{height:88px;width:auto;aspect-ratio:4/3;position:relative;display:inline-block;vertical-align:middle;margin:4px 7px 5px 0}
+#coverage{width:100%;height:100%;display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
+#coverage i{background:#dee7df;border-radius:2px}#coverage i.seen{background:#6e9f80}
+#map svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+dl{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;margin:5px 0;font-variant-numeric:tabular-nums}dd{margin:0;text-align:right}
+details{border-top:1px solid #ced9ce;margin-top:14px;padding-top:8px}summary{cursor:pointer;font-size:13px}
+@media(max-width:750px){main{grid-template-columns:1fr;grid-template-rows:minmax(0,59dvh) minmax(0,1fr)}aside{border-left:0;border-top:1px solid #cdd8ce;padding:12px 16px}h1{font-size:19px;margin:5px 0}}
+</style>
+<main><section><canvas aria-label="10 列 7 行棋盘格，四周各一格白边"></canvas></section>
+<aside><a id="view" href="/">← 三维工作台</a><h1>手机内参标定</h1>
+<p>先全屏，再用同一镜头拍摄。棋盘四周的白边都要入镜。</p>
+<div class="row"><button id="full">全屏</button><button id="start" class="primary">开始自动采集</button><button id="stop" disabled>暂停</button></div>
+<div class="count" id="count">0 / 15 张</div><progress max="15" value="0" aria-label="有效样本"></progress>
+<output role="status">等待工作台连接</output>
+<h2>画面覆盖</h2><div id="map"><div id="coverage" aria-label="相机画面的 12 个区域"></div>
+<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="当前棋盘区域"><polygon points="" fill="none" stroke="#994200" stroke-width="2" vector-effect="non-scaling-stroke"/></svg></div>
+<small id="guide">移动手机，使棋盘覆盖图像不同区域。</small>
+<div class="meters"><div><span>黑白边缘过渡</span><strong id="blur">—</strong></div><div><span>棋盘内角占画面</span><strong id="area">—</strong></div></div>
+<p class="hint">从左、右、上、下斜拍；每个姿态稍停。浅色区域还需要覆盖。</p>
+<h2>验证与应用</h2><p>每五张留一张验证，用其余视角拟合。通过后应用到当前三维服务。</p>
+<div class="row"><button id="solve" class="primary" disabled>计算并应用内参</button><button id="new">新开一组</button></div>
+<dl id="result"></dl><small id="applied"></small>
+<details><summary>拍摄设置与误差</summary><p>保持视频尺寸、镜头、焦距与正式运行一致。请使用平面屏幕，避免反光、条纹和弯曲。边缘过渡越窄越清晰，此处拒收超过 3.5 px 的样本。验证误差单位为像素，机械臂坐标误差需另外实测。</p></details>
+</aside></main>
+<script>
+const $=s=>document.querySelector(s);
+const pin=location.hash.slice(1)||sessionStorage.robotViewPin||prompt('输入工作台配对码')||'';
+sessionStorage.robotViewPin=pin; history.replaceState(null,'','/board'); $('#view').href='/#'+encodeURIComponent(pin);
+let active=false,busy=false,timer=0,count=0,minimum=15;
+const grid=Array.from({length:12},()=>$('#coverage').appendChild(document.createElement('i')));
+function drawBoard(){
+ const box=$('section').getBoundingClientRect(),d=devicePixelRatio||1;
+ const side=Math.max(1,Math.floor(Math.min(box.width*d/12,box.height*d/9)));
+ const c=$('canvas');if(c.width===12*side&&c.height===9*side)return;
+ c.width=12*side;c.height=9*side;c.style.width=c.width/d+'px';c.style.height=c.height/d+'px';
+ const g=c.getContext('2d');g.fillStyle='white';g.fillRect(0,0,c.width,c.height);g.fillStyle='black';
+ for(let y=0;y<7;y++)for(let x=0;x<10;x++)if(!((x+y)%2))g.fillRect((x+1)*side,(y+1)*side,side,side);
+}
+new ResizeObserver(drawBoard).observe($('section'));drawBoard();
+$('#full').onclick=async()=>{try{if(!document.fullscreenElement)await document.documentElement.requestFullscreen();else await document.exitFullscreen()}catch{$('output').textContent='可用浏览器的全屏功能（Windows：F11）。'}};
+document.addEventListener('fullscreenchange',()=>$('#full').textContent=document.fullscreenElement?'退出全屏':'全屏');
+function buttons(){
+ $('#start').disabled=active||busy;$('#stop').disabled=!active;
+ $('#solve').disabled=busy||active||count<minimum;$('#new').disabled=busy||active;$('#full').disabled=active;
+}
+function update(j){
+ count=j.count;minimum=j.minimum||15;
+ $('#count').textContent=count+' / '+minimum+' 张有效视角';
+ $('progress').max=minimum;$('progress').value=Math.min(count,minimum);$('output').textContent=j.message;
+ const quality=j.quality||{};$('#blur').textContent=quality.blur_px!=null?quality.blur_px+' px':'—';
+ $('#area').textContent=quality.area_pct!=null?quality.area_pct+'%':'—';
+ const cells=j.coverage?.flat()||[];grid.forEach((el,i)=>el.className=cells[i]>0?'seen':'');
+ if(j.image_size)$('#map').style.aspectRatio=j.image_size.join('/');
+ $('#map polygon').setAttribute('points',(j.outline||[]).map(([x,y])=>[100*x,100*y].join(',')).join(' '));
+ $('#guide').textContent='已覆盖 '+cells.filter(x=>x>0).length+'/12 个区域'+(j.edges_covered?' · 已拍到四边':j.missing_edges?.length?' · 待补：'+j.missing_edges.join('、')+'边':' · 请补拍靠近图像四边的视角');
+ const val=j.validation, result=$('#result');result.replaceChildren();
+ if(val){
+   const rows=[['拟合图像',val.train_views+' 张'],['拟合 RMS',val.fit_rms_px+' px'],['独立验证',val.heldout_views+' 张'],['验证 RMS / P95',val.heldout_rms_px+' / '+val.heldout_p95_px+' px'],['最差验证图 RMS',val.worst_view_rms_px+' px']];
+   if(val.excluded_images?.length)rows.push(['排除的训练图',val.excluded_images.join('、')]);
+   for(const [k,v] of rows){const term=document.createElement('dt'),value=document.createElement('dd');term.textContent=k;value.textContent=v;result.append(term,value)}
+ }
+ $('#applied').textContent=j.applied_rms_px!=null?'当前生效模型的拟合 RMS：'+Number(j.applied_rms_px).toFixed(3)+' px':'';
+}
+async function api(action){
+ const r=await fetch('/board/'+action,{method:'POST',headers:{'X-Pair':pin},signal:AbortSignal.timeout(25000)});
+ if(!r.ok)throw Error(r.status===403?'配对码无效，请打开三维工作台提供的标定链接':'标定服务暂不可用（'+r.status+'）');
+ update(await r.json());
+}
+async function send(action){
+ if(busy)return;busy=true;buttons();
+ try{await api(action)}
+ catch(e){active=false;clearTimeout(timer);$('output').textContent=e.message}
+ finally{busy=false;buttons()}
+}
+async function sample(){if(!active)return;await send('sample');if(active&&count<45)timer=setTimeout(sample,550);else{active=false;buttons()}}
+$('#start').onclick=()=>{active=true;sample()};$('#stop').onclick=()=>{active=false;clearTimeout(timer);buttons()};
+$('#solve').onclick=()=>{ $('output').textContent='正在拟合并验证内参…';send('solve')};
+$('#new').onclick=()=>{if(!count||confirm('开始新的采集组？之前采集的原始照片仍保存在电脑上。'))send('new')};
+window.addEventListener('pagehide',()=>{active=false;clearTimeout(timer)});
+send('status');
+</script></html>

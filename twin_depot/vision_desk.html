@@ -1,0 +1,98 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方块测量台</title><style>
+:root{font-family:system-ui,"Microsoft YaHei",sans-serif;color:#172f2b;background:#eff3ef}*{box-sizing:border-box}body{margin:0}
+header{background:#193730;color:white;padding:20px 4vw;display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:.6rem}h1{font-size:1.55rem;margin:0}
+main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:1rem;padding:1.4rem 4vw}section,aside{background:white;padding:1.1rem;border:1px solid #c4d0c9;border-radius:8px}
+.stage{background:#152521;min-height:200px;display:grid;place-items:center;color:#d6e5dd}canvas{max-width:100%;max-height:70vh;width:auto;height:auto;display:block;cursor:crosshair}
+h2{font-size:1.04rem;margin:0 0 .6rem}p{font-size:.91rem;line-height:1.55;margin:.45rem 0 .95rem}label{font-size:.87rem}input,button{font:inherit;padding:.45rem;border-radius:4px;border:1px solid #a3b6aa}input{width:5.5rem}button{cursor:pointer;background:#e0ede4;color:#164a37}button:disabled{opacity:.5;cursor:default}.row{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;margin:.55rem 0}
+.numeric,output{font-family:ui-monospace,monospace;font-variant-numeric:tabular-nums}hr{border:0;border-top:1px solid #dae2dc;margin:1rem 0}#message{color:#885000;min-height:1.3rem}#state{font-weight:bold}#held{color:#80541e}
+@media(max-width:880px){main{grid-template-columns:1fr}aside{order:1}} </style>
+<header><h1>方块平面测量台</h1><span>FastSAM · 29 mm 顶面</span></header>
+<main><section><div class="stage"><span id="empty">等待 iPhone 画面</span><canvas id="view" width="0" height="0"></canvas></div>
+<div class="row"><span id="state" role="status">等待连接</span><output id="age"></output></div>
+<p id="timing"></p>
+<button id="saveFrame">保存当前原图（棋盘格标定）</button>
+<p id="message" role="alert"></p><h2>当前测量</h2><div id="targets">等待测量</div><hr>
+<h2>锁定时的历史位置</h2><div id="held">无</div><button id="clear">清除锁定</button></section>
+<aside><h2>相机连接</h2><p><a id="localCam" href="/camera" target="_blank" rel="noopener">使用电脑上的 USB / 虚拟摄像头</a></p><p>配对码 <output id="pair"></output></p>
+<div WIFI_VISIBILITY><p>Wi-Fi 模式请用 iPhone Safari 打开 <b>SETUP_URL</b>。</p>
+<details><summary>核对证书指纹</summary><p style="overflow-wrap:anywhere">SHA-256 <code>ROOT_SHA256</code></p></details></div>
+<hr><h2>标定工作区域</h2><label>参考物 <select id="reference"><option value="cube">29 mm 方块</option><option value="rectangle">实测矩形</option></select></label>
+<p id="guide">固定一块参考方块。冻结后依次点击它顶面的左上、右上、右下、左下角；将待测方块放在旁边。</p>
+<div id="sizes" class="row" style="display:none"><label>X 边 mm <input id="width" type="number" min="35" max="3000" placeholder="实测"></label><label>Y 边 mm <input id="height" type="number" min="35" max="3000" placeholder="实测"></label></div>
+<div class="row"><button id="freeze">冻结并选四角</button><button id="undo" hidden>撤销一点</button><button id="cancel" hidden>取消</button><button id="apply" hidden>应用标定</button></div>
+<hr><h2>独立验尺</h2><p>在同一高度放置两点已知间距的标尺。输入实测长度后点击两端，检查坐标换算误差。</p>
+<label>长度 mm <input id="known" type="number" min="1" placeholder="实测"></label> <button id="ruler">选两端</button><p id="check"></p></aside></main>
+<script>
+const $=s=>document.querySelector(s),cv=$('#view'),ctx=cv.getContext('2d');
+let token=location.hash.slice(1)||sessionStorage.visionPair||prompt('输入电脑终端的配对码')||'';
+sessionStorage.visionPair=token;history.replaceState(null,'',location.pathname);$('#pair').textContent=token;
+$('#localCam').href='/camera#'+encodeURIComponent(token);
+let data={},picture=null,lastSeq='',sid='',mode='',picked=[],freezeId='',savedMatrix=null,pollEpoch=0,lastOK=0;
+let shown=0,rateStart=performance.now(),previewHz='…';
+function msg(s){$('#message').textContent=s}
+async function api(path,body){const r=await fetch(path,{signal:AbortSignal.timeout(3500),method:body===undefined?'GET':'POST',headers:{'X-Pair':token,'X-After':lastSeq,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const j=await r.json();if(!r.ok)throw Error(j.error);return j}
+function load(src){return new Promise((ok,no)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=no;i.src=src})}
+$('#saveFrame').onclick=()=>{if(mode||!picture||!data.fresh){msg('请等待最新相机画面');return}
+ const link=document.createElement('a');link.href=picture.src;link.download='board-'+Date.now()+'.jpg';link.click()};
+function outline(pts,color,close){if(!pts.length)return;ctx.strokeStyle=color;ctx.lineWidth=3;ctx.beginPath();pts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));if(close)ctx.closePath();ctx.stroke()}
+function dot(x,y,label,color){ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y,4,0,2*Math.PI);ctx.fill();ctx.font='bold 18px system-ui';ctx.lineWidth=3;ctx.strokeStyle='#13221e';ctx.strokeText(label,x+7,y-6);ctx.fillText(label,x+7,y-6)}
+function predictions(){return (data.predictions||[]).filter(p=>Date.now()-lastOK<p.ttl_ms)}
+function draw(){
+ if(!picture){cv.width=0;cv.height=0;$('#empty').hidden=false;return}
+ if(cv.width!==picture.width||cv.height!==picture.height){cv.width=picture.width;cv.height=picture.height}$('#empty').hidden=true;ctx.drawImage(picture,0,0);
+ if(mode){outline(picked,'#fed761',false);picked.forEach(([x,y],i)=>dot(x,y,String(i+1),'#fed761'));return}
+ outline(data.points||[],data.valid?'#80ded7':'#efaf49',true);
+ if(data.fresh){
+  for(const c of data.cubes){outline(c.outline_px,'#68f8a6',true);dot(...(c.fused_px||c.center_px),'#'+c.track_id,'#68f8a6')}
+  for(const p of predictions())dot(...p.center_px,'#'+p.track_id+' 预测','#ffd678')
+ }
+}
+function display(){
+ const status=mode?'已冻结画面':!data.seq?'等待新画面':!data.fresh?'画面已过期':!data.calibrated?'等待标定':!data.valid?'参考点移位或被挡，暂停测量':'测量中';
+ $('#state').textContent=status;$('#age').textContent=data.seq&&!mode?'预览 '+(data.fresh?previewHz:'0')+' 帧/秒 · 第 '+data.seq+' 帧 · 取帧请求至今 '+data.age_ms+' ms':'';
+ const timing=data.timing_p95_ms;
+ $('#timing').textContent=timing&&!mode?'最近 '+data.timing_n+' 帧 P95 · 请求至收图 '+timing[0]+' ms · 识别 '+timing[1]+' ms · 请求至结果 '+timing[2]+' ms':'';
+ const el=$('#targets');el.replaceChildren();
+ if(!mode && data.fresh)for(const [i,c] of data.cubes.entries()){
+   const row=document.createElement('div');row.className='row numeric';const txt=document.createElement('span');
+   txt.textContent='#'+c.track_id+'  融合 X '+c.fused_x_mm.toFixed(1)+'  Y '+c.fused_y_mm.toFixed(1)+' mm · 原始 '+c.x_mm.toFixed(1)+', '+c.y_mm.toFixed(1);row.append(txt);
+   const btn=document.createElement('button');btn.textContent=c.stable?'锁定':'观察中';btn.disabled=!c.stable;
+   const selected={seq:data.seq,session:data.session,index:i,track_id:c.track_id,x_mm:c.x_mm,y_mm:c.y_mm};btn.onclick=()=>api('/hold',selected).then(()=>msg('已记录这次观测')).catch(e=>msg(e.message));row.append(btn);el.append(row)
+ }
+ if(!mode&&data.fresh)for(const p of predictions()){const row=document.createElement('p');
+   row.textContent='#'+p.track_id+' 预测 X '+p.fused_x_mm.toFixed(1)+'  Y '+p.fused_y_mm.toFixed(1)+' mm · 距末次观测 '+Math.round(p.missing_s*1000)+' ms · 模型 σ '+p.sigma_mm.toFixed(1)+' mm';el.append(row)}
+ if(!el.childElementCount)el.textContent=data.valid&&data.fresh&&!mode?'未找到完整的 29 mm 顶面':'暂无可用实时坐标';
+ $('#held').textContent=data.held?'X '+data.held.x_mm.toFixed(1)+' / Y '+data.held.y_mm.toFixed(1)+' mm · '+data.held.age_s+' 秒前的观测':'无';
+ $('#undo').hidden=mode!=='cal';$('#cancel').hidden=!mode;$('#apply').hidden=mode!=='cal'||picked.length!==4;
+ $('#reference').disabled=!!mode;
+}
+async function poll(){try{
+ const epoch=pollEpoch;if(!mode){const d=await api('/state');let im=d.image?await load(d.image):null;
+ if(epoch===pollEpoch&&!mode){if(d.session!==sid){picture=null;lastSeq='';sid=d.session;$('#check').textContent=''}
+ const changed=!!im||d.fresh!==data.fresh||d.seq!==data.seq||JSON.stringify(d.predictions?.map(p=>p.track_id))!==JSON.stringify(data.predictions?.map(p=>p.track_id));
+ if(im){picture=im;shown++}if(!d.seq)picture=null;data=d;lastSeq=picture?String(d.seq):'';lastOK=Date.now();
+ const elapsed=performance.now()-rateStart,updateRate=elapsed>=1000;
+ if(updateRate){previewHz=(shown*1000/elapsed).toFixed(1);shown=0;rateStart=performance.now()}
+ if(changed)draw();if(changed||updateRate)display()}}
+ }catch(e){if(Date.now()-lastOK>1500){data.fresh=false;draw();display();msg(e.message)}}finally{setTimeout(poll,mode||!data.fresh?180:32)}}
+function leave(){mode='';picked=[];lastSeq='';data={};picture=null;pollEpoch++;draw();display()}
+$('#reference').onchange=()=>{const rect=$('#reference').value==='rectangle';$('#sizes').style.display=rect?'flex':'none';
+ $('#guide').textContent=rect?'在顶面同一高度固定实测矩形的四个角，依次点击原点、+X 角、对角、+Y 角。':'固定一块参考方块。冻结后依次点击它顶面的左上、右上、右下、左下角；将待测方块放在旁边。'};
+$('#freeze').onclick=async()=>{try{
+ if($('#reference').value==='rectangle'&&(!Number($('#width').value)||!Number($('#height').value)))throw Error('请先填入实测的 X、Y 边长');
+ const f=await api('/freeze',{});const im=await load(f.image);pollEpoch++;mode='cal';picture=im;freezeId=f.id;picked=[];draw();display();msg('点 1 为原点，点 2 定义 +X')
+ }catch(e){msg(e.message)}};
+$('#undo').onclick=()=>{picked.pop();draw();display()};$('#cancel').onclick=()=>{leave();msg('')};
+$('#apply').onclick=async()=>{try{await api('/calibrate',{id:freezeId,points:picked,reference:$('#reference').value,width:Number($('#width').value),height:Number($('#height').value)});$('#check').textContent='';leave();msg('标定已应用，请用独立标尺复核')}catch(e){msg(e.message)}};
+$('#clear').onclick=()=>api('/clear',{}).catch(e=>msg(e.message));
+$('#ruler').onclick=()=>{if(mode||!data.fresh||!data.matrix||!picture||!(Number($('#known').value)>0)){msg('需要有效标定和实测标尺长度');return}
+ mode='ruler';pollEpoch++;picked=[];savedMatrix=data.matrix;draw();display();msg('点击标尺两端')};
+function mm([x,y]){const v=savedMatrix.map(r=>r[0]*x+r[1]*y+r[2]);return [v[0]/v[2],v[1]/v[2]]}
+cv.onclick=e=>{if(!mode||picked.length>=(mode==='cal'?4:2))return;const r=cv.getBoundingClientRect();picked.push([(e.clientX-r.left)*cv.width/r.width,(e.clientY-r.top)*cv.height/r.height]);draw();display();
+ if(mode==='ruler'&&picked.length===2){const [a,b]=picked.map(mm),d=Math.hypot(a[0]-b[0],a[1]-b[1]);$('#check').textContent='测得 '+d.toFixed(2)+' mm，偏差 '+(d-Number($('#known').value)).toFixed(2)+' mm';leave();msg('')}}
+poll();
+setInterval(()=>{if(mode||!data.fresh)return;
+ if(Date.now()-lastOK+data.age_ms>1500){data.fresh=false;draw();display()}
+ else if(data.predictions?.length!==predictions().length){data.predictions=predictions();draw();display()}},70);
+</script></html>

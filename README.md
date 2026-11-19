@@ -1,5 +1,9 @@
 # 孪生仓 · SO-101 智能仓储数字孪生分拣（Twin Depot）
 
+**iPhone 实物实验**　在 `sorting_sim` 目录运行 `.\twin.bat workcell --frame camera --device cuda --ip 电脑的无线网IPv4`，打开打印的桌面链接，点“连接相机”。手持任一 29 mm 红、绿、蓝或黄块，轻量模型在显卡上补全八个角点，桌面同步显示手机图像、三维仿真与相机坐标。要建立机械臂基座坐标，在桌面切换到固定参考块的工位模式。USB 视频输入可使用 `--local-camera`。[安装、测速和配准步骤](docs/cube_vision.md)
+
+点 **打开 SO-101 仿真** 可在 MuJoCo 里查看 29 mm 方块。手持模式显示相机与方块的相对位姿，手机在机械臂旁的摆放仅供预览。工位模式完成基座配准并确认方向后，方块按机械臂基座坐标显示。窗口左上角显示当前坐标系及方块数。这个窗口的关节由仿真控制面板调节。
+
 现实里你用手扳动 **SO-101 主臂（leader）**，**从臂（follower）**会同步动作。同时，MuJoCo 里的仓库工位上有一台从臂的**数字孪生**，它按从臂的**实测关节角**做出一模一样的动作：从一条**从面前流过、永不停下的长传送带**上把包裹边走边抓下来，越过皮带放进对面的四个颜色箱子。没抓到的包裹会一路流到尽头，掉进地上的回收笼。
 
 ![离屏渲染截图：Isaac Sim 仓库里的长传送带工位，回收笼、牵引车、叉车和供件 AGV](docs/screenshot.png)
@@ -71,6 +75,9 @@ Windows、macOS、Linux 用的是**同一套命令**：`twin.py` 是一个只依
 |---|---|
 | `twin setup` | 只需运行一次：建环境（有 conda 就建 `twin-depot` 环境，否则用 uv，再否则用自带 venv 建 `.venv`，都是 Python 3.12），安装 LeRobot（含飞特舵机 SDK）、MuJoCo、Pillow、pytest、usd-core，导入 Isaac 仓库（约 380 MB，下载一次），最后做一次无窗口自检。`--demo-only` 只装 MuJoCo，`--no-isaac` 跳过仓库下载 |
 | `twin demo` | 自动驾驶演示，不需要硬件 |
+| `twin workcell` | 三维视觉工位。桌面默认端口 8874，iPhone 配置与实时画面使用 8842、8843。支持屏幕棋盘、基座三点示教和方块 XYZ 时序跟踪 |
+| `twin robot-view` | 同 `twin workcell`，手机直接向三维工作台上传画面 |
+| `twin vision` | 独立的平面测量工具。桌面默认端口 8844，支持等高 XY 验尺和停带锁定 |
 | `twin ports` | **自动认端口**：按提示依次拔掉、插回主臂（和从臂），程序看哪个串口消失又出现，把端口名和驱动板的 **USB 序列号**一起写进 `config.ini`。之后换 USB 口、COM 号变了、重启电脑，都会按序列号自动找回对应的臂，不用重认。`twin ports --list` 只列出串口（带序列号） |
 | `twin calibrate` | 用 LeRobot 依次标定从臂和主臂，每只臂只需做一次（`twin calibrate leader` 只标定主臂） |
 | `twin real` | 标准玩法：主臂带动真实从臂，孪生镜像从臂的实测姿态 |

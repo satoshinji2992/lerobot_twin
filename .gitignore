@@ -12,6 +12,8 @@ runs/
 config.ini
 .twin-python
 .venv/
+.vision-venv/
+.workcell-venv/
 # Python caches
 __pycache__/
 .pytest_cache/

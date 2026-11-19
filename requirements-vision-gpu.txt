@@ -1,0 +1,8 @@
+# CUDA 12.x and cuDNN 9 for the lightweight workcell and video benchmark.
+onnxruntime-gpu[cuda,cudnn]==1.24.4
+opencv-python>=4.9,<5
+numpy>=1.26
+pillow>=10
+cryptography>=43
+scipy>=1.10
+mujoco>=3.2

@@ -6,6 +6,7 @@
     python twin.py ports       # unplug/replug each arm -> config.ini
     python twin.py calibrate   # LeRobot calibration of both arms
     python twin.py real        # leader drives the real follower, the twin mirrors it
+    python twin.py workcell    # phone camera and live 3-D workstation
 
 Wrappers: twin.bat (Windows; double-click for a menu) and twin.sh (macOS / Linux). Arguments after
 the command go straight to play.py, e.g. `twin demo --difficulty hard`. This file only needs the
@@ -62,6 +63,9 @@ COMMANDS = {
     "tests": "run the test suite",
     "config": "show settings, or set them: twin config leader_id=alice player=Sam",
     "doctor": "check this machine: Python, MuJoCo, OpenGL window, serial ports, Isaac assets",
+    "vision": "iPhone LAN camera and 29 mm cube measurements (optional vision dependencies)",
+    "robot-view": "alias for the direct phone-to-workcell 3D viewer",
+    "workcell": "phone camera, 3-D cube tracking and robot workcell in one process",
     "ui": "web control panel in the browser (the default with no command; --port N, --no-browser)",
     "menu": "the same choices as a terminal menu",
 }
@@ -457,6 +461,25 @@ def main(argv: list[str]) -> None:
             cmd_setup(rest)
         elif cmd == "config":
             cmd_config(rest)
+        elif cmd in ("vision", "robot-view", "workcell"):
+            envs = [SIM / ".vision-venv"]
+            if cmd != "vision":
+                envs.insert(0, SIM / ".workcell-venv")
+            for env in envs:
+                py = _bin(env, "python")
+                if py.is_file():
+                    # Two POSIX venvs often symlink to the same Python executable.
+                    if not _same(str(env), sys.prefix):
+                        raise SystemExit(subprocess.call([str(py), str(Path(__file__).resolve()), *argv]))
+                    break
+            if cmd == "vision":
+                from twin_depot.vision import main as measure
+
+                measure(rest)
+            else:
+                from twin_depot.robot_view import main as view
+
+                view(rest)
         elif cmd in COMMANDS:
             enter_env(argv)
             handler = {

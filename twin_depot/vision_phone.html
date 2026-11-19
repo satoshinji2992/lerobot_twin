@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <title>工作台相机</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+        color: #e1eee9;
+        background: #11221f;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        max-width: 48rem;
+        margin: 0 auto;
+        padding: 1.1rem;
+      }
+      h1 {
+        font-size: 1.55rem;
+        margin: 0;
+      }
+      header,
+      .controls,
+      .fields {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        flex-wrap: wrap;
+      }
+      header {
+        justify-content: space-between;
+      }
+      .fields {
+        align-items: flex-end;
+        margin: 1rem 0;
+      }
+      label {
+        display: grid;
+        gap: 0.25rem;
+        font-size: 0.85rem;
+        color: #c2d8ce;
+      }
+      input,
+      select,
+      button {
+        border: 1px solid #56786b;
+        border-radius: 0.45rem;
+        background: #1d382e;
+        color: inherit;
+        font: inherit;
+        min-height: 2.7rem;
+        padding: 0.4rem 0.7rem;
+      }
+      input {
+        width: 9rem;
+        font:
+          1.05rem/1.3 ui-monospace,
+          monospace;
+        letter-spacing: 0.12em;
+      }
+      select {
+        max-width: 100%;
+      }
+      button {
+        cursor: pointer;
+      }
+      #go {
+        background: #aae9c5;
+        color: #143529;
+        border-color: #aae9c5;
+        font-weight: 600;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      #status {
+        font-size: 0.88rem;
+        color: #c4dbd1;
+      }
+      #status[data-state='live'] {
+        color: #97e8af;
+      }
+      #status[data-state='error'] {
+        color: #ffbd92;
+      }
+      video {
+        display: block;
+        width: 100%;
+        max-height: 53vh;
+        min-height: 10rem;
+        background: #0b1714;
+        border-radius: 0.5rem;
+        margin: 1rem 0 0.5rem;
+        object-fit: contain;
+      }
+      dl {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin: 0.65rem 0;
+        gap: 0.5rem;
+      }
+      dl div {
+        padding: 0.45rem;
+        background: #193027;
+        border-radius: 0.4rem;
+      }
+      dt {
+        font-size: 0.76rem;
+        color: #adccba;
+      }
+      dd {
+        margin: 0.15rem 0 0;
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+      }
+      #msg,
+      #hint,
+      #optics {
+        margin: 0.55rem 0;
+        color: #c1d8cb;
+      }
+      #hint,
+      #optics {
+        font-size: 0.88rem;
+      }
+      #meta {
+        font-size: 0.83rem;
+        color: #aac4b8;
+        display: block;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>工作台相机</h1>
+      <span id="status" role="status">待连接</span>
+    </header>
+    <div class="fields">
+      <label
+        >相机配对码<input
+          id="pair"
+          inputmode="numeric"
+          pattern="[0-9]{8}"
+          maxlength="8"
+          autocomplete="off"
+          placeholder="8 位数字"
+      /></label>
+      <label
+        >传输画质<select id="quality">
+          <option value="auto">自动（按上传耗时调节）</option><option value="0.83">标准</option>
+          <option value="0.7">低带宽</option>
+        </select></label
+      >
+    </div>
+    <div id="devices" class="fields" hidden>
+      <label
+        >本机视频设备<select id="device">
+          <option value="">系统默认摄像头</option>
+        </select></label
+      >
+      <button id="list" type="button">列出设备</button>
+    </div>
+    <div class="controls"><button id="go">开始传输</button><button id="stop" disabled>停止</button></div>
+    <video playsinline muted autoplay></video>
+    <span id="meta">等待相机画面</span>
+    <dl>
+      <div>
+        <dt>传输帧率</dt>
+        <dd id="fps">—</dd>
+      </div>
+      <div>
+        <dt>等待相机帧</dt><dd id="waitFrame">—</dd></div><div><dt>JPEG 编码</dt>
+        <dd id="encode">—</dd>
+      </div>
+      <div>
+        <dt>上传往返</dt>
+        <dd id="upload">—</dd>
+      </div>
+    </dl>
+    <p id="workcellState" hidden aria-live="polite"></p>
+    <p id="msg">将待测方块放入画面，保持镜头、画幅和方向与内参标定时一致。工位模式还需拍到固定参考块。</p>
+    <p id="hint">
+      请保持浏览器采集页位于前台。上传往返耗时较长时，可切换到低带宽画质，画面尺寸保持一致。
+    </p>
+    <p id="optics">标定和运行时请固定同一镜头和倍率。浏览器或摄像头驱动可能不报告变焦或自动换镜，切换后请重新标定。</p>
+    <script>
+      'use strict';
+      const $ = (id) => document.getElementById(id);
+      const video = document.querySelector('video'),
+        canvas = document.createElement('canvas');
+      const local = location.pathname === '/camera',
+        prefix = local ? '/camera' : '';
+      let generation = 0,
+        stream = null,
+        request = null;
+      const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      function status(text, state = '') {
+        $('status').textContent = text;
+        $('status').dataset.state = state;
+      }
+      function controls(active) {
+        $('go').disabled = active;
+        $('stop').disabled = !active;
+        for (const id of ['pair', 'list', 'device']) $(id).disabled = active;
+      }
+      function clearRates() {
+        for (const id of ['fps', 'waitFrame', 'encode', 'upload']) $(id).textContent = '—';
+      }
+      function stop(reason = '已停止传输', state = '') {
+        ++generation;
+        request?.abort();
+        request = null;
+        stream?.getTracks().forEach((t) => t.stop());
+        stream = null;
+        video.srcObject = null;
+        controls(false);
+        clearRates();
+        $('workcellState').hidden = true;
+        $('meta').textContent = '等待相机画面';
+        status(reason, state);
+      }
+      $('stop').onclick = () => stop();
+      const fragment = location.hash.slice(1);
+      if (/^\d{8}$/.test(fragment)) $('pair').value = fragment;
+      else {
+        try {
+          $('pair').value = sessionStorage.visionPair || '';
+        } catch {}
+      }
+      if (local) {
+        document.title = '本机相机';
+        document.querySelector('h1').textContent = '本机相机';
+        $('devices').hidden = false;
+        $('hint').textContent =
+          '选择操作系统已识别的内置、USB 或虚拟摄像头。';
+      }
+      $('list').onclick = async () => {
+        let probe;
+        try {
+          if (!navigator.mediaDevices) throw Error('请从电脑上的工作台打开本机相机页。');
+          $('list').disabled = true;
+          probe = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          const cams = (await navigator.mediaDevices.enumerateDevices()).filter(
+            (device) => device.kind === 'videoinput',
+          );
+          const old = $('device').value;
+          $('device').replaceChildren(
+            new Option('系统默认摄像头', ''),
+            ...cams.map((d, i) => new Option(d.label || '摄像头 ' + (i + 1), d.deviceId)),
+          );
+          if (cams.some((d) => d.deviceId === old)) $('device').value = old;
+          $('msg').textContent = cams.length ? '请选择设备，然后开始传输。' : 'Windows 尚未列出摄像头。';
+        } catch (e) {
+          $('msg').textContent = cameraError(e);
+        } finally {
+          probe?.getTracks().forEach((t) => t.stop());
+          $('list').disabled = $('go').disabled;
+        }
+      };
+      function cameraError(e) {
+        if (e.name === 'NotAllowedError') return '相机权限未开启，请允许本页访问摄像头后重试。';
+        if (e.name === 'NotFoundError') return '未找到摄像头，请检查设备连接并重新列出设备。';
+        if (e.name === 'NotReadableError') return '无法读取摄像头，请检查它是否正被其他应用独占。';
+        return e.message || String(e);
+      }
+      function hex(bytes) {
+        return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
+      }
+      function profileReader(track) {
+        let salt = hex(crypto.getRandomValues(new Uint8Array(16)));
+        try {
+          const existing = localStorage.getItem('workcellCameraSalt');
+          if (/^[a-f0-9]{32}$/.test(existing || '')) salt = existing;
+          else localStorage.setItem('workcellCameraSalt', salt);
+        } catch { /* Storage-restricted tabs can still calibrate for this session. */ }
+        let previousIdentity, cameraKey;
+        return async () => {
+          const settings = track.getSettings?.() || {};
+          // Device IDs and camera labels may identify hardware. Keep them in this browser.
+          const identity = JSON.stringify([settings.deviceId || '', track.label || '']);
+          if (identity !== previousIdentity) {
+            if (settings.deviceId && settings.deviceId !== 'default' && crypto.subtle) {
+              const encoded = new TextEncoder().encode(salt + identity);
+              cameraKey = hex(await crypto.subtle.digest('SHA-256', encoded)).slice(0, 32);
+            } else {
+              // Without a physical track ID, the next capture might be a different camera.
+              cameraKey = hex(crypto.getRandomValues(new Uint8Array(16)));
+            }
+            previousIdentity = identity;
+          }
+          return {
+            camera_key: cameraKey,
+            native_size: [settings.width || video.videoWidth, settings.height || video.videoHeight],
+            video_size: [video.videoWidth, video.videoHeight],
+            facing: ['user','environment','left','right'].includes(settings.facingMode) ? settings.facingMode : null,
+            zoom: Number.isFinite(settings.zoom) && settings.zoom > 0 ? Number(settings.zoom.toFixed(4)) : null,
+            resize_mode: ['none','crop-and-scale'].includes(settings.resizeMode) ? settings.resizeMode : null,
+          };
+        };
+      }
+      async function post(path, body = null, headers = {}) {
+        const controller = new AbortController();
+        request = controller;
+        const timer = setTimeout(() => controller.abort(), 4500);
+        try {
+          const r = await fetch(prefix + path, {
+            method: 'POST',
+            headers: { 'X-Pair': $('pair').value.trim(), ...headers },
+            body,
+            signal: controller.signal,
+            cache: 'no-store',
+          });
+          const data = await r.json();
+          if (!r.ok) {
+            const error = Error(data.error || '服务器返回 HTTP ' + r.status);
+            error.status = r.status;
+            throw error;
+          }
+          return data;
+        } finally {
+          clearTimeout(timer);
+          if (request === controller) request = null;
+        }
+      }
+      async function freshFrame(id) {
+        const previous = video.currentTime;
+        return new Promise((resolve, reject) => {
+          let handle;
+          const started = performance.now();
+          function finish(time) {
+            clearInterval(timer);
+            if (handle != null) video.cancelVideoFrameCallback?.(handle);
+            if (id !== generation || time == null) reject(Error('相机暂时未送出新画面'));
+            else resolve(time);
+          }
+          const timer = setInterval(() => {
+            const elapsed = performance.now() - started;
+            if (id !== generation || elapsed >= 1000) finish();
+            else if ((handle == null || elapsed >= 80) && video.readyState >= 2 && video.currentTime > previous)
+              finish(video.currentTime);
+          }, 16);
+          handle = video.requestVideoFrameCallback?.((_, frame) => finish(frame.mediaTime));
+        });
+      }
+      $('go').onclick = async () => {
+        if (!/^\d{8}$/.test($('pair').value.trim())) {
+          status('需要配对码', 'error');
+          $('msg').textContent = '请输入电脑工作台显示的 8 位相机配对码。';
+          $('pair').focus();
+          return;
+        }
+        const id = ++generation;
+        controls(true);
+        clearRates();
+        status('正在打开相机');
+        try {
+          if (!navigator.mediaDevices?.getUserMedia)
+            throw Error('请从电脑工作台打开相机链接，移动设备需用浏览器打开已信任的 HTTPS 页面。');
+          const camera = local
+            ? $('device').value
+              ? { deviceId: { exact: $('device').value } }
+              : {}
+            : { facingMode: { ideal: 'environment' } };
+          const media = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { ...camera, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } },
+          });
+          if (generation !== id) {
+            media.getTracks().forEach((t) => t.stop());
+            return;
+          }
+          stream = media;
+          video.srcObject = stream;
+          await video.play();
+          if (generation !== id) return;
+          const track = stream.getVideoTracks()[0];
+          track.onended = () => {
+            if (id === generation) {
+              stop('摄像头已断开', 'error');
+              $('msg').textContent = '重新接入设备后，点击开始传输。';
+            }
+          };
+          status('正在连接工作台');
+          if (!video.videoWidth || !video.videoHeight) await freshFrame(id);
+          if (id !== generation) return;
+          const readProfile = profileReader(track);
+          let profile = await readProfile();
+          const startSession = (capture) => post('/start', JSON.stringify({profile:capture}), {'Content-Type':'application/json'});
+          if (id !== generation) return;
+          const { session } = await startSession(profile);
+          if (id !== generation) return;
+          try {
+            sessionStorage.visionPair = $('pair').value.trim();
+          } catch {}
+          const headers = { 'X-Session': session },
+            ctx = canvas.getContext('2d');
+          let autoQuality = 0.83, uploadAverage = null, lastQualityChange = 0;
+          let nextProfile = null,
+            lastStatus = -Infinity,
+            nextSeq = null,
+            ticketAt = 0,
+            windowStart = performance.now(),
+            sent = 0,
+            retries = 0;
+          while (id === generation) {
+            try {
+              if (nextProfile) {
+                const replacement = await startSession(nextProfile);
+                if (id !== generation) break;
+                headers['X-Session'] = replacement.session;
+                profile = nextProfile;
+                nextProfile = nextSeq = null;
+                sent = 0;
+                windowStart = performance.now();
+                $('msg').textContent = '镜头或画幅已变化，工作台正在核对内参。';
+              }
+              // Only one JPEG is in flight. After an interrupted upload request a new
+              // ticket and capture a new frame instead of resending an old JPEG.
+              if (performance.now() - ticketAt > 1100) nextSeq = null;
+              let seq = nextSeq;
+              nextSeq = null;
+              if (seq == null) {
+                ticketAt = performance.now();
+                seq = (await post('/ticket', null, headers)).seq;
+              }
+              const waitAt = performance.now();
+              await freshFrame(id);
+              // Safari can repeat mediaTime for successive presented camera frames.
+              // Timestamp the confirmed frame on this session's monotonic clock.
+              const captureSeconds = performance.now() / 1000;
+              const frameWait = performance.now() - waitAt;
+              if (id !== generation) break;
+              const observed = await readProfile();
+              if (id !== generation) break;
+              if (JSON.stringify(observed) !== JSON.stringify(profile)) {
+                nextProfile = observed;
+                continue;
+              }
+              const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
+              const w = Math.round(video.videoWidth * scale),
+                h = Math.round(video.videoHeight * scale);
+              if (!w || !h) throw Error('等待相机尺寸');
+              const begin = performance.now();
+              if (canvas.width !== w || canvas.height !== h) {
+                canvas.width = w;
+                canvas.height = h;
+              }
+              ctx.drawImage(video, 0, 0, w, h);
+              const jpg = await new Promise((r) =>
+                canvas.toBlob(r, 'image/jpeg', ($('quality').value === 'auto' ? autoQuality : Number($('quality').value))),
+              );
+              if (id !== generation) break;
+              if (!jpg) throw Error('视频帧编码失败');
+              const encoded = performance.now();
+              if (encoded - ticketAt > 1300) {
+                status('等待新画面');
+                $('msg').textContent = '相机帧已延迟，正在重新取帧。';
+                clearRates();
+                sent = 0;
+                windowStart = encoded;
+                continue;
+              }
+              const reply = await post('/frame', jpg, {
+                ...headers,
+                'X-Seq': String(seq),
+                ...(performance.now()-lastStatus > 800 ? {'X-Workcell-Status':'1'} : {}),
+                'X-Media-Time': String(captureSeconds),
+                'X-Next-Ticket': '1',
+                'Content-Type': 'image/jpeg',
+              });
+              if (id !== generation) break;
+              const now = performance.now();
+              if (reply.ok === false) {
+                nextSeq = reply.next_seq ?? null;
+                ticketAt = now;
+                status('工作台丢帧', 'error');
+                $('msg').textContent = reply.dropped === 'duplicate'
+                  ? '相机时间戳未前进，工作台正在等待新画面。'
+                  : '上传帧到达时已超时，工作台正在等待新画面。';
+                clearRates();
+                sent = 0;
+                windowStart = now;
+                continue;
+              }
+              if (reply.calibration) {
+                lastStatus = now;
+                const labels = {saved:'内参已保存，等待核对',matched:'当前镜头已标定',lens_unverified:'已应用内参，请核对镜头和倍率',missing:'当前使用估计内参',mismatch:'视频与内参不匹配，三维已暂停'};
+                const desc = '已直连工作台 · '+reply.device+' · '+labels[reply.calibration];
+                if ($('workcellState').textContent !== desc) $('workcellState').textContent=desc;
+                $('workcellState').hidden=false;
+              }
+              if (!sent && !retries && $('status').dataset.state !== 'live')
+                $('msg').textContent = '工作台正在接收画面，可以拿起或转动方块。';
+              if (retries) $('msg').textContent = '连接已恢复，正在传输新画面。';
+              status('传输中', 'live');
+              retries = 0;
+              nextSeq = reply.next_seq ?? null;
+              ticketAt = now;
+              sent++;
+              if (now - windowStart >= 800) {
+                $('fps').textContent = ((sent * 1000) / (now - windowStart)).toFixed(1) + ' fps';
+                sent = 0;
+                windowStart = now;
+              }
+              $('waitFrame').textContent = Math.round(frameWait) + ' ms';
+              uploadAverage = uploadAverage == null ? now-encoded : 0.85*uploadAverage + 0.15*(now-encoded);
+              if ($('quality').value === 'auto' && now-lastQualityChange > 1000) {
+                autoQuality = Math.min(.83, Math.max(.60, autoQuality + (uploadAverage>25 ? -.05 : uploadAverage<12 ? .025 : 0)));
+                lastQualityChange = now;
+              }
+              $('encode').textContent = Math.round(encoded - begin) + ' ms';
+              $('upload').textContent = Math.round(now - encoded) + ' ms';
+              $('meta').textContent =
+                w + ' × ' + h + ' · ' + Math.round(jpg.size / 1024) + ' KB · 第 ' + seq + ' 帧';
+            } catch (e) {
+              if (id !== generation) break;
+              if (e.status && e.status < 500) throw e;
+              clearRates();
+              status('等待重连', 'error');
+              retries++;
+              sent = 0;
+              $('msg').textContent = '正在重试 · ' + (e.message || '画面传输中断');
+              await pause(Math.min(250 * 2 ** Math.min(retries - 1, 4), 3000));
+              windowStart = performance.now();
+            }
+          }
+        } catch (e) {
+          if (id === generation) {
+            stop('连接已结束', 'error');
+            $('msg').textContent = cameraError(e);
+          }
+        }
+      };
+      window.addEventListener('pagehide', () => stop());
+    </script>
+  </body>
+</html>

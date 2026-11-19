@@ -1,0 +1,1852 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>机械臂观测台 · Twin Depot</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #eef2f0;
+        --ink: #172b2c;
+        --muted: #546c6b;
+        --quiet: #718684;
+        --line: #d8e1dd;
+        --card: #fff;
+        --forest: #124a43;
+        --teal: #0d7361;
+        --warn: #88540b;
+        --bad: #a13830;
+        --mono: 'IBM Plex Mono', Consolas, monospace;
+        font:
+          15px/1.5 Inter,
+          'Segoe UI',
+          'Microsoft YaHei',
+          system-ui,
+          sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      button,
+      input,
+      a {
+        font: inherit;
+      }
+      button,
+      a.button {
+        cursor: pointer;
+        border: 1px solid #afbfba;
+        background: white;
+        color: var(--ink);
+        padding: 7px 13px;
+        border-radius: 6px;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+      button:hover:not(:disabled),
+      a.button:hover {
+        border-color: var(--teal);
+        background: #edf6f1;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      button:focus-visible,
+      a:focus-visible,
+      select:focus-visible,
+      input:focus-visible {
+        outline: 3px solid #188e77;
+        outline-offset: 2px;
+      }
+      button.primary,
+      a.primary {
+        background: var(--forest);
+        border-color: var(--forest);
+        color: white;
+      }
+      button.primary:hover:not(:disabled),
+      a.primary:hover {
+        background: #226156;
+        color: white;
+      }
+      select,
+      input {
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 7px 10px;
+        background: white;
+        color: var(--ink);
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .mono {
+        font-family: var(--mono);
+        font-variant-numeric: tabular-nums;
+      }
+      .top {
+        background: #172e2e;
+        color: #c4d7cf;
+        padding: 12px max(20px, calc((100vw - 1400px) / 2));
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .mark {
+        width: 21px;
+        height: 21px;
+        border: 2px solid #9bd8b4;
+        display: grid;
+        place-items: center;
+        border-radius: 4px;
+      }
+      .mark::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border: 2px solid #9bd8b4;
+        border-radius: 2px;
+      }
+      .brand strong {
+        color: white;
+        font-size: 15px;
+        letter-spacing: 0.06em;
+      }
+      .brand .sep {
+        border-left: 1px solid #52716a;
+        padding-left: 12px;
+        font-size: 13px;
+      }
+      .top .button {
+        background: transparent;
+        border-color: #526e66;
+        color: white;
+        padding: 4px 10px;
+        font-size: 13px;
+      }
+      .top .button:hover {
+        background: #284a45;
+      }
+      .top-actions {
+        display: flex;
+        gap: 8px;
+      }
+      main {
+        max-width: 1440px;
+        margin: auto;
+        padding: 21px 20px 32px;
+      }
+      .intro {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+      h1,
+      h2,
+      h3,
+      p,
+      figure {
+        margin: 0;
+      }
+      h1 {
+        font-size: clamp(22px, 2.3vw, 32px);
+        letter-spacing: 0.015em;
+        line-height: 1.25;
+      }
+      h2 {
+        font-size: 16px;
+      }
+      h3 {
+        font-size: 14px;
+      }
+      .line {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .sub {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 5px;
+      }
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 100%;
+        background: #80928c;
+        flex: none;
+      }
+      .state {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 13px;
+        font-weight: 650;
+        padding: 4px 10px;
+        border-radius: 4px;
+        background: #e2e8e4;
+        color: #475e59;
+      }
+      .state.ok {
+        background: #dcefe4;
+        color: #195c3f;
+      }
+      .state.ok .status-dot {
+        background: #1b8657;
+      }
+      .state.warn {
+        background: #fbefcd;
+        color: var(--warn);
+      }
+      .state.warn .status-dot {
+        background: #bb8221;
+      }
+      .state.bad {
+        background: #f7e2de;
+        color: var(--bad);
+      }
+      .state.bad .status-dot {
+        background: #b95749;
+      }
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        margin-bottom: 14px;
+      }
+      .metric {
+        padding: 11px 18px;
+      }
+      .metric + .metric {
+        border-left: 1px solid var(--line);
+      }
+      .metric dt {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .metric dd {
+        margin: 2px 0 0;
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+      }
+      .num {
+        font: 600 23px/1.25 var(--mono);
+      }
+      .unit {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .feeds {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        min-width: 0;
+      }
+      .feed {
+        overflow: hidden;
+      }
+      .feed-head,
+      .box-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+      .feed-head {
+        padding: 10px 14px;
+      }
+      .box-head {
+        padding: 13px 16px;
+      }
+      .feed-head small,
+      .box-head small {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .mini {
+        font-size: 12px;
+        padding: 3px 8px;
+        border-color: var(--line);
+      }
+      .feed-image {
+        height: clamp(235px, 28vw, 395px);
+        position: relative;
+        background: #152423;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+      }
+      .feed-image img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      #staleCamera {
+        position: absolute;
+        bottom: 12px;
+        padding: 6px 12px;
+        background: #162321eb;
+        color: white;
+        border-radius: 5px;
+      }
+      .placeholder {
+        max-width: 88%;
+        display: grid;
+        justify-items: center;
+        gap: 8px;
+        color: #c8dad4;
+        text-align: center;
+        font-size: 14px;
+      }
+      .feed:fullscreen {
+        background: #112321;
+        display: flex;
+        flex-direction: column;
+        border: 0;
+        border-radius: 0;
+      }
+      .feed:fullscreen .feed-head {
+        background: white;
+      }
+      .feed:fullscreen .feed-image {
+        flex: 1;
+      }
+      .feed-foot {
+        padding: 9px 13px;
+        font-size: 12px;
+        color: var(--muted);
+        background: #f9fbfa;
+        min-height: 35px;
+      }
+      .feed-foot strong {
+        font-weight: 600;
+        color: var(--ink);
+      }
+      .view-control {
+        font-size: 12px;
+        padding: 3px 5px;
+        max-width: 9em;
+      }
+      .sim-caption {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 4px 12px;
+      }
+      .axis-key {
+        white-space: nowrap;
+      }
+      .axis-key b {
+        margin-left: 4px;
+      }
+      .axis-x {
+        color: #a73d38;
+      }
+      .axis-y {
+        color: #237245;
+      }
+      .axis-z {
+        color: #2859a4;
+      }
+      #viewMessage:not(:empty) {
+        display: block;
+        width: 100%;
+      }
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 1.32fr) minmax(0, 1fr);
+        gap: 14px;
+        margin-top: 14px;
+      }
+      .table-scroll {
+        overflow: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        white-space: nowrap;
+        text-align: right;
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+      th,
+      td {
+        padding: 8px 9px;
+        border-top: 1px solid #e4ebe7;
+      }
+      td:first-child,
+      th:first-child {
+        text-align: left;
+        padding-left: 16px;
+      }
+      th:last-child,
+      td:last-child {
+        padding-right: 16px;
+      }
+      th {
+        font-size: 12px;
+        color: var(--muted);
+        background: #f4f8f5;
+        font-weight: 550;
+      }
+      td.val {
+        font-family: var(--mono);
+      }
+      .swatch {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        margin-right: 6px;
+      }
+      .empty {
+        padding: 18px 16px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .risk {
+        color: #8f5509;
+      }
+      .frame-info {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 5px 14px;
+        padding: 9px 16px;
+        border-top: 1px solid var(--line);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .plot-wrap {
+        padding: 0 12px 6px;
+        position: relative;
+      }
+      .plot-wrap canvas {
+        width: 100%;
+        height: 190px;
+        display: block;
+      }
+      .plot-wrap .empty {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        pointer-events: none;
+      }
+      .small {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .event-box {
+        margin-top: 14px;
+      }
+      .height-check {
+        padding: 0 16px 14px;
+        display: grid;
+        gap: 10px;
+      }
+      .height-check .line label {
+        font-size: 13px;
+      }
+      .height-check input[type='number'] {
+        width: 9em;
+      }
+      .height-check dl {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 4px 12px;
+        margin: 0;
+        font-size: 13px;
+      }
+      .height-check dd {
+        margin: 0;
+      }
+      .event-box summary {
+        cursor: pointer;
+        padding: 11px 16px;
+        font-weight: 600;
+      }
+      .event-box ul {
+        list-style: none;
+        margin: 0;
+        padding: 0 16px 10px;
+        max-height: 165px;
+        overflow: auto;
+      }
+      .event-box li {
+        padding: 4px 0;
+        font-size: 13px;
+      }
+      .event-box time {
+        font: 12px var(--mono);
+        color: var(--muted);
+        margin-right: 12px;
+      }
+      dialog {
+        width: min(550px, calc(100vw - 22px));
+        padding: 0;
+        border: 1px solid #a1b4ab;
+        border-radius: 10px;
+        color: var(--ink);
+        box-shadow: 0 12px 48px #14282144;
+      }
+      dialog::backdrop {
+        background: #0b20206b;
+      }
+      dialog header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--line);
+      }
+      .dialog-body {
+        padding: 16px 20px;
+      }
+      .dialog-body p {
+        margin-bottom: 10px;
+      }
+      .dialog-body label {
+        display: block;
+        margin: 10px 0 5px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .dialog-body output {
+        display: block;
+        overflow-wrap: anywhere;
+        border: 1px solid var(--line);
+        padding: 8px 10px;
+        border-radius: 5px;
+        color: #21463e;
+        background: #f6f9f7;
+      }
+      .dialog-body .code {
+        font-size: 21px;
+        letter-spacing: 0.12em;
+      }
+      .dialog-body .row {
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        margin: 8px 0;
+      }
+      .dialog-body .row input {
+        min-width: 0;
+        flex: 1;
+      }
+      .dialog-body a {
+        color: var(--teal);
+      }
+      #notice {
+        margin: 0 0 11px;
+        border-left: 3px solid #c29544;
+        background: #fff8e8;
+        padding: 8px 12px;
+        font-size: 13px;
+      }
+      @media (max-width: 840px) {
+        .split {
+          grid-template-columns: 1fr;
+        }
+        .feed-image {
+          height: clamp(180px, 32vw, 300px);
+        }
+      }
+      @media (max-width: 620px) {
+        .top {
+          padding: 9px 12px;
+        }
+        .brand .sep {
+          display: none;
+        }
+        .top-actions {
+          gap: 5px;
+        }
+        main {
+          padding: 14px 10px 24px;
+        }
+        .intro {
+          align-items: flex-start;
+        }
+        .intro > button {
+          font-size: 12px;
+          padding: 6px 8px;
+        }
+        .metrics {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .metric {
+          padding: 8px 12px;
+        }
+        .metric:nth-child(3) {
+          border-left: 0;
+        }
+        .metric:nth-child(n + 3) {
+          border-top: 1px solid var(--line);
+        }
+        .num {
+          font-size: 19px;
+        }
+        .feeds {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+        .feed-image {
+          height: clamp(190px, 58vw, 290px);
+        }
+        .split,
+        .event-box {
+          margin-top: 10px;
+        }
+        .sub {
+          font-size: 12px;
+        }
+        .box-head,
+        .feed-head {
+          padding: 9px 10px;
+        }
+        .top .button {
+          font-size: 12px;
+          padding: 4px 7px;
+        }
+        th,
+        td {
+          padding: 7px;
+        }
+        .plot-wrap canvas {
+          height: 160px;
+        }
+      }
+      .feed-meta {
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .frame-info a {
+        color: var(--teal);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .box-head select {
+        font: inherit;
+        font-size: 12px;
+        padding: 3px 6px;
+      }
+      .missing {
+        margin: 0 16px 10px;
+        border-left: 2px solid #c3a261;
+        padding: 4px 9px;
+        background: #faf6ed;
+        color: #705a34;
+        font-size: 12px;
+      }
+      .missing ul {
+        list-style: none;
+        padding: 0;
+        margin: 2px 0;
+      }
+      .missing .mono {
+        color: #5e543e;
+      }
+      .dialog-body .local {
+        margin-top: 12px;
+        display: inline-flex;
+      }
+      .readiness {display:grid;grid-template-columns:1fr 1.35fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:0 0 12px}
+      .readiness section {background:#fff;padding:13px 16px;min-width:0}
+      .readiness small {display:block;color:#536861;margin-top:4px;line-height:1.45}
+      .readiness h2 {margin:0 0 5px;color:#52635d;font-size:12px;font-weight:550}
+      .readiness strong {color:#233f36;font-size:17px}
+      .readiness strong[data-tone="warn"] {color:#815313}
+      .readiness strong[data-tone="bad"] {color:#a83d36}
+      .readiness section>a {float:right;font-size:13px;padding:4px 7px}
+      .stream-legend {display:flex;gap:15px;font-size:12px;color:#52635d;align-items:center;flex-wrap:wrap}
+      .stream-legend span::before {content:"";display:inline-block;width:9px;height:9px;border-radius:2px;border:2px solid;margin-right:5px;vertical-align:-1px}
+      .stream-legend .estimated::before {border-color:#ac509e}.stream-legend .candidate::before {border-color:#ba870e}.stream-legend .observed::before {border-color:#238066}
+      @media(max-width:760px){.readiness {grid-template-columns:1fr 1fr}.readiness section:nth-child(2){grid-row:2;grid-column:1/-1}.readiness section {padding:9px 12px}.readiness strong {font-size:15px}}
+     .work-actions{display:flex;flex-wrap:wrap;gap:8px} #armMessage{border-left:3px solid #237b65;background:#edf5f1;padding:12px 16px} .dialog-body h3{font-size:1rem;margin:18px 0 6px}.dialog-body .local{margin-bottom:12px} @media(max-width:680px){.intro{align-items:flex-start;flex-wrap:wrap}.work-actions{width:100%}.work-actions button{flex:1}}
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span><strong>Twin Depot</strong><span class="sep">机械臂工位</span>
+      </div>
+      <nav class="top-actions" aria-label="工位设置">
+        <button id="connect" class="button">连接相机</button>
+      </nav>
+    </header>
+    <main>
+      <section class="intro">
+        <div>
+          <div class="line">
+            <h1>视觉与机械臂工作台</h1>
+            <span id="badge" class="state"><i class="status-dot"></i><span id="badgeText">连接中</span></span>
+          </div>
+          <p class="sub" id="status" role="status">正在读取工作台状态…</p>
+        </div>
+        <div class="work-actions"><button id="freeze" disabled>定格观测</button><button id="launchArm" class="primary">打开 SO-101 仿真 ↗</button></div>
+      </section>
+      <p id="armMessage" role="status" hidden></p><p id="notice" hidden></p>
+      <div class="readiness" aria-label="工位状态">
+        <section><h2>视频输入</h2><strong id="linkState">读取中</strong><small id="linkDetail">等待工作台</small></section>
+        <section><a class="button" id="board" href="/board">棋盘标定 ↗</a><h2>相机内参</h2><strong id="calState">读取中</strong><small id="calDetail"></small></section>
+        <section><h2>定位坐标系</h2><strong id="coordState">读取中</strong><small id="baseState"></small></section>
+      </div>
+      <dl class="metrics">
+        <div class="metric">
+          <dt>可见方块</dt>
+          <dd><span class="num" id="count">—</span><span class="unit">个</span></dd>
+        </div>
+        <div class="metric">
+          <dt>预览速率</dt>
+          <dd><span class="num" id="rate">—</span><span class="unit">帧/秒</span></dd>
+        </div>
+        <div class="metric">
+          <dt>取帧至今</dt>
+          <dd><span class="num" id="age">—</span><span class="unit">ms</span></dd>
+        </div>
+        <div class="metric">
+          <dt>本帧识别</dt>
+          <dd><span class="num" id="infer">—</span><span class="unit">ms</span></dd>
+        </div>
+      </dl>
+      <section class="feeds" aria-label="同步视频视图">
+        <figure class="panel feed" id="cameraPanel">
+          <div class="feed-head">
+            <div class="line">
+              <h2>相机画面</h2>
+              <select class="view-control" id="coordMode" aria-label="选择定位坐标系">
+                <option value="fast">手持 · 实时定位</option>
+                <option value="camera">手持 · 精测</option>
+                <option value="workcell">工位 · 固定参考块</option>
+              </select>
+            </div>
+            <button class="mini zoom" data-for="cameraPanel">全屏</button>
+          </div>
+          <div class="feed-image">
+            <div class="placeholder" id="camEmpty">
+              <strong>等待相机传输画面</strong>
+              <button class="mini" id="emptyConnect">选择视频来源</button>
+            </div>
+            <img id="im" alt="实时相机画面与检测轮廓" hidden />
+            <strong id="staleCamera" hidden>最后一帧 · 视频更新已暂停</strong>
+          </div>
+          <figcaption class="feed-foot">
+            <strong id="seqLabel">尚无视频帧</strong>　<span id="cameraMode">CAMERA_MODE</span>
+            <div class="stream-legend"><span class="estimated">三维估计</span><span class="candidate" id="candidateLegend">二维候选</span><span class="observed" id="measuredLegend">实测轮廓</span></div>
+          </figcaption>
+        </figure>
+        <figure class="panel feed" id="simPanel">
+          <div class="feed-head">
+            <div class="line">
+              <h2>工位重建</h2>
+              <small id="simCurrentView">MuJoCo</small>
+            </div>
+            <div class="line">
+              <select class="view-control" id="simView" aria-label="切换三维视角" disabled>
+                <option value="overview">全景</option>
+                <option value="detail">方块近景</option>
+                <option value="side">侧面验高</option>
+                <option value="top">俯视</option>
+              </select>
+              <button class="mini zoom" data-for="simPanel">全屏</button>
+            </div>
+          </div>
+          <div class="feed-image">
+            <div class="placeholder" id="simEmpty">
+              <strong id="simHint">等待参考块定位</strong>
+              <small id="simHelp">在工位上固定一个 29 mm 红色方块，让相机看清它的整个顶面。</small>
+            </div>
+            <img id="sim" alt="当前帧的相机与方块三维姿态" hidden />
+          </div>
+          <figcaption class="feed-foot sim-caption">
+            <span id="cameraXYZ">相机与方块位姿随有效观测更新</span>
+            <span class="axis-key"
+              ><span id="axisFrame">工位轴</span><b class="axis-x">X</b><b class="axis-y">Y</b><b class="axis-z">Z</b></span
+            >
+            <span id="viewMessage" role="status"></span>
+          </figcaption>
+        </figure>
+      </section>
+      <p class="feed-meta" id="pipeline"></p>
+      <section class="split">
+        <article class="panel">
+          <div class="box-head">
+            <h2 id="positionsTitle">方块中心坐标</h2>
+            <div class="line">
+              <small>单位 mm</small
+              ><select id="positionMode" aria-label="坐标来源">
+                <option value="xyz">融合坐标</option>
+                <option value="raw_xyz">本帧观测</option>
+                <option value="lead_xyz">出结果时预测（≤120 ms）</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table aria-label="当前方块观测坐标">
+              <thead>
+                <tr>
+                  <th scope="col">目标</th>
+                  <th scope="col">X</th>
+                  <th scope="col">Y</th>
+                  <th scope="col">Z</th>
+                  <th id="qualityHeading" scope="col" title="姿态模型投影与相机中顶面角点的偏差，单位为像素">重投影误差</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+          <p class="empty" id="positionsEmpty">收到有效姿态后显示坐标。</p>
+          <aside class="missing" id="completionsBox" hidden>
+            <strong>遮挡补全估计 · 相机 XYZ（mm）</strong>
+            <ul id="completions"></ul>
+            <small>紫色线框和半透明方块为模型推断。现场验高使用实测角点。</small>
+          </aside>
+          <aside id="missingTargets" class="missing" hidden>
+            <strong>暂失观测 · 最后位置</strong>
+            <ul id="missingRows"></ul>
+          </aside>
+          <div class="frame-info">
+            <span id="frameName">FRAME_NAME</span><a id="registration" href="/registration">基座配准 ↗</a>
+          </div>
+          <form class="frame-info" id="orientation" hidden>
+            <label for="xEdge">对照实物，选择 +X 边</label>
+            <select id="xEdge" required>
+              <option value="">选择相机画面中的边</option>
+              <option value="0">A → B</option>
+              <option value="1">B → C</option>
+              <option value="2">C → D</option>
+              <option value="3">D → A</option>
+            </select>
+            <button class="mini" id="orientSubmit" disabled>确认基座方向</button>
+            <span id="orientationMessage" role="status"></span>
+          </form>
+        </article>
+        <article class="panel">
+          <div class="box-head">
+            <h2 id="plotTitle">水平面轨迹</h2>
+            <small>XY · 最近 30 秒</small>
+          </div>
+          <div class="plot-wrap">
+            <canvas id="plot" aria-label="最近 30 秒有测量值的方块中心 XY 轨迹"></canvas
+            ><span class="empty" id="plotEmpty">等待连续观测</span>
+          </div>
+          <div class="frame-info" id="plotInfo">实心点为当前融合中心，空心点为最后一次观测。遮挡期间轨迹断开。</div>
+        </article>
+      </section>
+      <details class="panel event-box" id="heightPanel">
+        <summary>现场验高</summary>
+        <div class="height-check">
+          <p class="small">
+            停稳传送带，在带面记录同一方块；再在相同 XY 放入已知高度的量块，记录第二次。每组至少 7 个新帧，使用原始
+            XYZ，三轴各自的极差须在 3 mm 内。
+          </p>
+          <div class="line">
+            <label for="heightColor">目标颜色</label>
+            <select id="heightColor">
+              <option value="">选择单个可见目标</option>
+              <option value="green">绿色</option>
+              <option value="blue">蓝色</option>
+              <option value="yellow">黄色</option>
+            </select>
+            <span class="small" id="heightTarget">等待实时观测</span>
+          </div>
+          <label id="heightConfirmLabel" class="small" hidden
+            ><input type="checkbox" id="heightConfirm" /><span id="heightConfirmText"></span
+          ></label>
+          <div class="line">
+            <button id="heightBase" disabled>采集带面基准</button
+            ><button id="heightLift" disabled>采集第二位置</button
+            ><button id="heightReset" class="mini" disabled>清除本组</button>
+          </div>
+          <p id="heightStatus" class="small" role="status">选择颜色，将方块停稳后开始采集。</p>
+          <dl>
+            <dt>带面基准</dt>
+            <dd id="heightBaseStats">—</dd>
+            <dt>第二位置</dt>
+            <dd id="heightLiftStats">—</dd>
+          </dl>
+          <div class="line">
+            <label for="heightActual">实际高度差 mm</label
+            ><input id="heightActual" type="number" step="any" placeholder="如 29 或 -29" />
+          </div>
+          <p id="heightResult" role="status">完成两次采集后计算高度差。</p>
+        </div>
+      </details>
+      <details class="panel event-box">
+        <summary>连接与跟踪记录 <span class="small" id="eventCount"></span></summary>
+        <ul id="events"></ul>
+      </details>
+    </main>
+    <dialog id="pairDialog">
+      <header>
+        <h2>连接相机</h2>
+        <button class="mini" id="closeDialog">关闭</button>
+      </header>
+      <div class="dialog-body">
+        <div id="phoneDetails">
+          <div id="wifiSettings">
+            <h3>网络相机采集页</h3><p>手机或平板接入同一局域网，用浏览器扫码打开采集页。</p>
+            <figure id="setupQr" hidden style="text-align: center">
+              <img
+                id="setupQrImage"
+                width="160"
+                height="160"
+                alt="相机采集页二维码"
+                style="image-rendering: pixelated"
+              />
+              <figcaption class="small">扫码直连工作台 · 已带入配对码</figcaption>
+            </figure>
+            <label>直连相机地址</label><output id="cameraUrl" class="mono">—</output>
+            <button type="button" id="copyJoin" class="mini">复制采集链接</button><span id="copyResult" role="status"></span>
+            <label>手动配对码</label><output id="phoneCode" class="mono code">—</output>
+            <details id="certDetails" style="margin-top:10px"><summary>首次连接或证书尚未信任</summary>
+              <p>用采集设备的浏览器打开配置地址，按页面提示安装证书并开启信任，再扫码。</p>
+              <label>配置地址</label><output id="setupUrl" class="mono">—</output>
+              <label>根证书 SHA-256 指纹</label><output id="certHash" class="mono"></output>
+            </details>
+          </div>
+          <p id="usbHelp" hidden>在电脑上打开采集页，列出摄像头，选择已连接的 USB 或虚拟摄像头，再开始传输。</p>
+          <h3>本机摄像头</h3><p class="small">支持内置、USB 和虚拟摄像头。</p><a class="button local" id="localCamera" href="#" target="_blank" rel="noopener noreferrer" hidden
+            >选择本机摄像头 ↗</a
+          >
+        </div>
+        <div id="authBox" hidden>
+          <p>当前网页需要桌面工作台配对码。请打开启动时打印的完整工作台链接，或在此输入该链接中 # 后的配对码。</p>
+          <div class="row">
+            <input id="deskCode" aria-label="桌面工作台配对码" autocomplete="off" /><button
+              class="primary"
+              id="useDeskCode"
+            >
+              连接
+            </button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+    <script>
+      'use strict';
+      const el = (id) => document.getElementById(id);
+      const COLORS = {
+        red: ['红色', '#ce5548'],
+        green: ['绿色', '#288657'],
+        blue: ['蓝色', '#3876cb'],
+        yellow: ['黄色', '#b38212'],
+      };
+      document.getElementById('launchArm').onclick=async function(){
+        const msg=document.getElementById('armMessage');
+        this.disabled=true; msg.hidden=false; msg.textContent='正在打开 MuJoCo…';
+        try {
+          const r=await fetch('/arm-viewer',{method:'POST',headers:{'X-Pair':token}});
+          if(!r.ok) throw Error(r.status===403?'请使用完整的桌面配对链接。':'此工作台实例需要更新或重新启动。');
+          msg.textContent='MuJoCo 窗口在工作台电脑上。手持模式在机械臂旁预览相机和方块的相对位置。工位模式完成基座配准后显示实际相对机械臂的位置。可在 Control 中调节仿真关节。';
+        }catch(e){msg.textContent=e.message;}finally{this.disabled=false;}
+      };
+      let token = location.hash.slice(1) || sessionStorage.robotViewPin || '';
+      function saveToken(value) {
+        token = value.trim();
+        sessionStorage.robotViewPin = token;
+        for (const [id, path] of [
+          ['board', '/board'],
+          ['registration', '/registration'],
+        ])
+          el(id).href = path + '#' + encodeURIComponent(token);
+      }
+      saveToken(token);
+      history.replaceState(null, '', location.pathname);
+      const initialMode = el('cameraMode').textContent,
+        initialFrame = el('frameName').textContent;
+      const frameTimes = [],
+        paths = new Map(),
+        events = [];
+      let requestEpoch = 0,
+        after = '',
+        sourceSession = null,
+        snapshot = null,
+        paused = false,
+        lastFrameTime = 0,
+        lastBadge = '';
+      let liveKeys = new Set(),
+        lastFrameDef = null,
+        authenticated = null;
+      let orientationEpoch = null,
+        orienting = false;
+      const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+      const vec = (v) => Array.isArray(v) && v.length === 3 && v.every(finite);
+      const cameraPose = (v) =>
+        Array.isArray(v) &&
+        v.length === 4 &&
+        v.every((row) => Array.isArray(row) && row.length === 4 && row.every(finite));
+      const colorOf = (row) => COLORS[row.color] || ['方块', '#61756f'];
+      let savingMode = false;
+      el('coordMode').onchange = async () => {
+        const selected=el('coordMode').value;
+        const mode = selected==='fast' ? 'camera' : selected;
+        savingMode = true;
+        el('coordMode').disabled = true;
+        try {
+          const reply = await fetch('/frame-mode', {method:'POST', headers:{'Content-Type':'application/json','X-Pair':token},
+            body:JSON.stringify({mode,pipeline:selected==='fast'?'fast':'precision'}), signal:AbortSignal.timeout(3500)});
+          if (!reply.ok) throw Error('切换坐标系失败，请重新连接工作台。');
+          requestEpoch++; after=''; snapshot=null; lose('坐标系已切换，等待新帧', '');
+        } catch(e) { record(e.message); }
+        finally {savingMode=false;}
+      };
+      const viewNames = { overview: '全景', detail: '方块近景', side: '侧面验高', top: '俯视' };
+      let requestedView = null,
+        renderedView = null,
+        postedView = false;
+      function nameRenderedView() {
+        const img = el('sim');
+        if (
+          !renderedView ||
+          img.hidden ||
+          !img.complete ||
+          !img.naturalWidth ||
+          img.currentSrc !== renderedView.src
+        )
+          return;
+        el('simCurrentView').textContent = 'MuJoCo · ' + viewNames[renderedView.view];
+        if (requestedView === renderedView.view) {
+          requestedView = null;
+          el('viewMessage').textContent = '';
+        }
+      }
+      el('sim').addEventListener('load', nameRenderedView);
+      el('simView').onchange = async () => {
+        const selected = el('simView').value;
+        if (paused || postedView || !Object.hasOwn(viewNames, selected)) return;
+        requestedView = selected;
+        postedView = true;
+        el('simView').disabled = true;
+        el('viewMessage').textContent = '等待' + viewNames[selected] + '的新仿真帧…';
+        try {
+          const response = await fetch('/view', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Pair': token },
+            body: JSON.stringify({ view: selected }),
+            signal: AbortSignal.timeout(4000),
+          });
+          if (!response.ok)
+            throw Error((await response.json().catch(() => ({}))).error || '切换视角失败，请重试。');
+        } catch (error) {
+          requestedView = null;
+          el('simView').value = renderedView?.view || 'overview';
+          el('viewMessage').textContent = error.message;
+        } finally {
+          postedView = false;
+          el('simView').disabled = paused || !token;
+        }
+      };
+      const height = { base: null, lift: null, run: null, visible: null };
+      const heightWindow = { frames: 7, duration: 350, timeout: 12000, maxSpan: 3 };
+      function median(values) {
+        const ordered = values.slice().sort((a, b) => a - b);
+        const mid = Math.floor(ordered.length / 2);
+        return ordered.length % 2 ? ordered[mid] : (ordered[mid - 1] + ordered[mid]) / 2;
+      }
+      function renderHeight() {
+        for (const [key, id] of [
+          ['base', 'heightBaseStats'],
+          ['lift', 'heightLiftStats'],
+        ]) {
+          const r = height[key];
+          el(id).textContent = r
+            ? '#' +
+              r.id +
+              ' · ' +
+              r.count +
+              ' 帧 · Z 中位数 ' +
+              r.xyz[2].toFixed(2) +
+              ' mm · Z 极差 ' +
+              r.span.toFixed(2) +
+              ' mm'
+            : '—';
+        }
+        let result = '完成两次采集后计算高度差。';
+        if (height.base && height.lift) {
+          const shift = height.lift.xyz[2] - height.base.xyz[2];
+          const drift = Math.hypot(
+            height.lift.xyz[0] - height.base.xyz[0],
+            height.lift.xyz[1] - height.base.xyz[1],
+          );
+          const actual = el('heightActual').valueAsNumber;
+          result = '实测 ΔZ ' + shift.toFixed(2) + ' mm';
+          result += finite(actual)
+            ? ' · 误差（实测 − 实际）' + (shift - actual).toFixed(2) + ' mm'
+            : ' · 输入实际高度差以计算误差';
+          result += ' · 两位置 XY 偏移 ' + drift.toFixed(2) + ' mm';
+          if (drift > heightWindow.maxSpan) result += '，请复核方块是否在同一 XY。';
+        }
+        el('heightResult').textContent = result;
+      }
+      function stopHeight(message) {
+        if (!height.run) return;
+        height.run = null;
+        el('heightStatus').textContent = message;
+      }
+      function resetHeight(message) {
+        height.run = height.base = height.lift = height.visible = null;
+        el('heightConfirm').checked = false;
+        el('heightConfirmLabel').hidden = true;
+        el('heightActual').value = '';
+        el('heightStatus').textContent = message;
+        renderHeight();
+      }
+      function observeHeight(s, newFrame = false) {
+        if (!el('heightPanel').open) return;
+        const color = el('heightColor').value,
+          t = performance.now();
+        const fresh =
+          !paused &&
+          !!frameKey(s) &&
+          s.fresh !== false &&
+          cameraPose(s.camera_pose) &&
+          lastFrameTime > 0 &&
+          t - lastFrameTime < 1500 &&
+          (!finite(s.age_ms) || s.age_ms < 1500);
+        const same = fresh
+          ? (s.rows || []).filter((r) => r.color === color && !r.predicted && r.measured !== false)
+          : [];
+        const multiple = same.length > 1 || (same.length > 0 && (s.history || []).some((r) => r.color === color));
+        const row =
+          same.length === 1 && !multiple && same[0].track_id != null && vec(same[0].raw_xyz) ? same[0] : null;
+        const id = row?.track_id ?? null;
+        if (height.visible !== id) el('heightConfirm').checked = false;
+        height.visible = id;
+        const confirmNewId = row && height.base && id !== height.base.id;
+        el('heightConfirmLabel').hidden = !confirmNewId;
+        if (confirmNewId)
+          el('heightConfirmText').textContent = '确认当前 #' + id + ' 与基准 #' + height.base.id + ' 是同一实物。';
+        let targetText = '等待所选颜色的原始观测';
+        if (paused) targetText = '定格期间暂停采样';
+        else if (!fresh) targetText = '等待实时定位';
+        else if (!color) targetText = '请选择目标颜色';
+        else if (multiple) targetText = '同色目标不唯一，请保留一个目标';
+        else if (row) targetText = colorOf(row)[0] + ' #' + id;
+        el('heightTarget').textContent = targetText;
+        const run = height.run;
+        if (run) {
+          if (t - run.started > heightWindow.timeout) stopHeight('采集超时，本次样本已清除。');
+          else if (!row || id !== run.id) stopHeight('观测中断或目标身份改变，本次样本已清除。');
+          else if (newFrame && frameKey(s) !== run.lastSeq) {
+            run.lastSeq = frameKey(s);
+            if (!run.points.length) run.firstFrame = t;
+            run.points.push(row.raw_xyz.slice());
+            el('heightStatus').textContent = '已采集 ' + run.points.length + ' 个独立新帧，请保持方块静止。';
+            if (run.points.length >= heightWindow.frames && t - run.firstFrame >= heightWindow.duration) {
+              const axes = [0, 1, 2].map((i) => run.points.map((p) => p[i]));
+              const spans = axes.map((values) => Math.max(...values) - Math.min(...values));
+              if (Math.max(...spans) > heightWindow.maxSpan) {
+                stopHeight(
+                  '本次 XYZ 极差为 ' +
+                    spans.map((v) => v.toFixed(2)).join(' / ') +
+                    ' mm。请检查抖动或定位噪声后重新采集。',
+                );
+              } else {
+                height[run.phase] = { id, count: run.points.length, xyz: axes.map(median), span: spans[2] };
+                stopHeight(
+                  run.phase === 'base' ? '基准已记录。保持 XY，将同一物块移到第二位置。' : '第二位置已记录。',
+                );
+                renderHeight();
+              }
+            }
+          }
+        }
+        el('heightBase').disabled = !row || !!height.run;
+        el('heightLift').disabled =
+          !row || !!height.run || !height.base || (confirmNewId && !el('heightConfirm').checked);
+        el('heightReset').disabled = !(height.run || height.base || height.lift);
+      }
+      function beginHeight(phase) {
+        observeHeight(snapshot || {});
+        const button = el(phase === 'base' ? 'heightBase' : 'heightLift');
+        if (button.disabled) return;
+        if (phase === 'base') height.base = null;
+        height.lift = null;
+        height.run = {
+          phase,
+          id: height.visible,
+          started: performance.now(),
+          lastSeq: frameKey(snapshot),
+          points: [],
+        };
+        el('heightStatus').textContent = '等待下一帧，请保持方块静止。';
+        renderHeight();
+        observeHeight(snapshot);
+      }
+      el('heightBase').onclick = () => beginHeight('base');
+      el('heightLift').onclick = () => beginHeight('lift');
+      el('heightConfirm').onchange = () => observeHeight(snapshot || {});
+      el('heightActual').oninput = renderHeight;
+      el('heightColor').onchange = () => {
+        resetHeight('目标颜色已变更，请采集带面基准。');
+        observeHeight(snapshot || {});
+      };
+      el('heightReset').onclick = () => {
+        resetHeight('已清除本组，请重新采集。');
+        observeHeight(snapshot || {});
+      };
+      el('heightPanel').ontoggle = () => {
+        if (el('heightPanel').open) observeHeight(snapshot || {});
+        else stopHeight('面板已收起，本次采集已停止。');
+      };
+      function drawEvents() {
+        const ul = el('events');
+        ul.replaceChildren();
+        for (const item of events) {
+          const li = document.createElement('li'),
+            time = document.createElement('time');
+          time.textContent = item.when;
+          li.append(time, document.createTextNode(item.msg));
+          ul.append(li);
+        }
+        el('eventCount').textContent = '（' + events.length + '）';
+      }
+      function record(msg) {
+        events.unshift({ msg, when: new Date().toLocaleTimeString('zh-CN', { hour12: false }) });
+        if (events.length > 30) events.length = 30;
+        drawEvents();
+      }
+      function badge(text, style) {
+        if (lastBadge !== text) {
+          record(text);
+          lastBadge = text;
+        }
+        el('badge').className = 'state ' + style;
+        el('badgeText').textContent = text;
+      }
+      function media(id, empty, src, visible) {
+        const img = el(id);
+        if (src) img.src = src;
+        img.hidden = !visible || !img.hasAttribute('src');
+        el(empty).hidden = !img.hidden;
+        if (!visible) img.removeAttribute('src');
+      }
+      function formatPose(s) {
+        const m = s.camera_pose;
+        if (!Array.isArray(m) || m.length !== 4) return '相机与方块位姿随有效观测更新';
+        const p = m.slice(0, 3).map((r) => r?.[3]);
+        return vec(p) ? '相机光心 XYZ　' + p.map((v) => v.toFixed(1)).join(' / ') + ' mm' : '等待相机位姿';
+      }
+      function clearTracks() {
+        paths.clear();
+        liveKeys.clear();
+        lastFrameTime = 0;
+        frameTimes.length = 0;
+        drawPlot();
+      }
+      function frameKey(s) {
+        return s.seq == null ? '' : String(s.seq);
+      }
+      function updateTracks(rows, t, seq) {
+        const now = new Set(),
+          counts = new Map();
+        for (const r of rows) counts.set(r.color, (counts.get(r.color) || 0) + 1);
+        for (const r of rows) {
+          if (!vec(r.xyz) || r.predicted || r.measured === false) continue;
+          const id = r.track_id ?? null;
+          // Without stable IDs, only a unique observed color can be plotted. Never join two same-color objects.
+          if (id === null && counts.get(r.color) !== 1) continue;
+          const key = id === null ? 'color:' + r.color : 'id:' + String(id);
+          now.add(key);
+          const c = colorOf(r),
+            name = c[0] + (id === null ? '' : ' #' + id);
+          let path = paths.get(key);
+          if (!path) {
+            path = { name, color: c[1], pts: [] };
+            paths.set(key, path);
+          }
+          const prev = path.pts.at(-1);
+          if (prev?.seq === seq) continue;
+          if (!liveKeys.has(key) && prev) record(name + ' 恢复观测');
+          path.pts.push({ xyz: r.xyz.slice(), seq, t, join: !!prev && liveKeys.has(key) && t - prev.t < 850 });
+        }
+        for (const key of liveKeys) {
+          if (!now.has(key) && paths.has(key)) record(paths.get(key).name + ' 暂失观测');
+        }
+        liveKeys = now;
+      }
+      function prune(t) {
+        for (const [key, path] of paths) {
+          path.pts = path.pts.filter((p) => t - p.t <= 30000);
+          if (!path.pts.length) paths.delete(key);
+        }
+      }
+      function niceStep(value) {
+        const base = 10 ** Math.floor(Math.log10(Math.max(0.001, value)));
+        return ([1, 2, 5, 10].find((v) => v * base >= value) || 10) * base;
+      }
+      let lastPlotAt = 0;
+      function drawPlot() {
+        lastPlotAt = performance.now();
+        const canvas = el('plot'),
+          rect = canvas.getBoundingClientRect(),
+          w = Math.round(rect.width),
+          h = Math.round(rect.height);
+        if (w < 80 || h < 60) return;
+        const dpi = Math.min(2, window.devicePixelRatio || 1);
+        if (canvas.width !== Math.round(w * dpi) || canvas.height !== Math.round(h * dpi)) {
+          canvas.width = Math.round(w * dpi);
+          canvas.height = Math.round(h * dpi);
+        }
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpi, 0, 0, dpi, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        const pts = Array.from(paths.values())
+          .flatMap((p) => p.pts)
+          .map((p) => p.xyz);
+        el('plotEmpty').hidden = pts.length > 0;
+        if (!pts.length) return;
+        const xs = pts.map((p) => p[0]),
+          ys = pts.map((p) => p[1]),
+          xmid = (Math.min(...xs) + Math.max(...xs)) / 2,
+          ymid = (Math.min(...ys) + Math.max(...ys)) / 2;
+        const bounds = { left: 39, right: w - 13, top: 15, bottom: h - 22 };
+        const pw = bounds.right - bounds.left,
+          ph = bounds.bottom - bounds.top;
+        const mm = Math.max(
+          50 / pw,
+          50 / ph,
+          (Math.max(...xs) - Math.min(...xs) + 20) / pw,
+          (Math.max(...ys) - Math.min(...ys) + 20) / ph,
+        );
+        const xl = xmid - (pw * mm) / 2,
+          yl = ymid - (ph * mm) / 2,
+          step = niceStep(Math.max(40 * mm, 0.1));
+        const x = (u) => bounds.left + (u - xl) / mm,
+          y = (v) => bounds.bottom - (v - yl) / mm;
+        ctx.font = '10px Consolas,monospace';
+        ctx.fillStyle = '#55716b';
+        ctx.strokeStyle = '#dce7e0';
+        ctx.lineWidth = 1;
+        for (let i = Math.ceil(xl / step); x(i * step) <= bounds.right; i++) {
+          const sx = x(i * step);
+          ctx.beginPath();
+          ctx.moveTo(sx, bounds.top);
+          ctx.lineTo(sx, bounds.bottom);
+          ctx.stroke();
+          ctx.textAlign = 'center';
+          ctx.fillText(String(i * step), sx, h - 7);
+        }
+        for (let i = Math.ceil(yl / step); y(i * step) >= bounds.top; i++) {
+          const sy = y(i * step);
+          ctx.beginPath();
+          ctx.moveTo(bounds.left, sy);
+          ctx.lineTo(bounds.right, sy);
+          ctx.stroke();
+          ctx.textAlign = 'right';
+          ctx.fillText(String(i * step), bounds.left - 5, sy + 3);
+        }
+        ctx.fillText('Y', bounds.left - 6, bounds.top - 4);
+        ctx.fillText('X', w - 2, h - 7);
+        for (const [key, path] of paths) {
+          ctx.strokeStyle = path.color;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          let first = true;
+          for (const p of path.pts) {
+            const sx = x(p.xyz[0]),
+              sy = y(p.xyz[1]);
+            if (first || !p.join) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+            first = false;
+          }
+          ctx.stroke();
+          const tail = path.pts.at(-1);
+          ctx.beginPath();
+          ctx.arc(x(tail.xyz[0]), y(tail.xyz[1]), 4, 0, 2 * Math.PI);
+          if (liveKeys.has(key)) {
+            ctx.fillStyle = path.color;
+            ctx.fill();
+          } else {
+            ctx.stroke();
+          }
+        }
+      }
+      new ResizeObserver(drawPlot).observe(el('plot'));
+      function table(rows, message) {
+        const tb = el('rows');
+        tb.replaceChildren();
+        for (const r of rows) {
+          const tr = document.createElement('tr'),
+            cell = document.createElement('td'),
+            sw = document.createElement('i'),
+            [name, col] = colorOf(r);
+          sw.className = 'swatch';
+          sw.style.background = col;
+          cell.append(sw, document.createTextNode(name + (r.track_id != null ? ' #' + r.track_id : '')));
+          tr.append(cell);
+          const xyz = r[el('positionMode').value];
+          for (const n of vec(xyz) ? xyz : [null, null, null]) {
+            const td = document.createElement('td');
+            td.className = 'val';
+            td.textContent = finite(n) ? n.toFixed(1) : '—';
+            tr.append(td);
+          }
+          const quality = document.createElement('td');
+          quality.className = 'val';
+          quality.textContent = r.sourceLabel || (finite(r.error_px) ? r.error_px.toFixed(2) + ' px' : '—');
+          if (r.pnp_points) quality.textContent += ' · ' + r.pnp_points + '点';
+          tr.append(quality);
+          tb.append(tr);
+        }
+        el('positionsEmpty').hidden = !!rows.length;
+        el('positionsEmpty').textContent = message;
+      }
+      function missingTable(rows) {
+        const ul = el('missingRows');
+        ul.replaceChildren();
+        for (const r of rows) {
+          if (!vec(r.xyz) || !finite(r.missing_ms)) continue;
+          const li = document.createElement('li'),
+            val = document.createElement('span');
+          val.className = 'mono';
+          val.textContent = r.xyz.map((x) => x.toFixed(1)).join(' / ') + ' mm';
+          if (vec(r.lead_xyz)) val.textContent += '　出结果时预测 +' + r.lead_ms + ' ms：' +
+            r.lead_xyz.map(x => x.toFixed(1)).join(' / ') + ' mm';
+          li.append(
+            document.createTextNode(
+              colorOf(r)[0] + ' #' + r.track_id + ' · ' + Math.round(r.missing_ms) + ' ms 前　',
+            ),
+            val,
+          );
+          ul.append(li);
+        }
+        el('missingTargets').hidden = !ul.children.length;
+      }
+      function connectInfo(s) {
+        const c = s.connection || {};
+        const usbOnly = !!c.local_url && !c.setup_url && !c.camera_url;
+        el('wifiSettings').hidden = usbOnly;
+        el('usbHelp').hidden = !usbOnly;
+        el('certDetails').hidden = !c.root_sha256;
+        el('certHash').textContent = c.root_sha256 || '';
+        const qr = el('setupQrImage');
+        if (typeof c.setup_qr === 'string' && c.setup_qr.startsWith('data:image/png;base64,')) {
+          if (qr.getAttribute('src') !== c.setup_qr) qr.src = c.setup_qr;
+          el('setupQr').hidden = false;
+        } else {
+          qr.removeAttribute('src');
+          el('setupQr').hidden = true;
+        }
+        el('setupUrl').textContent = c.setup_url || '请查看相机服务终端中的 配置地址';
+        el('copyJoin').disabled = !c.join_url;
+        el('cameraUrl').textContent = c.join_url || c.camera_url || '请查看相机服务终端中的 采集地址';
+        el('phoneCode').textContent = c.pair || '见相机服务终端';
+        el('phoneDetails').hidden = false;
+        el('authBox').hidden = true;
+        const local = el('localCamera');
+        local.hidden = true;
+        if (c.local_url) {
+          try {
+            const url = new URL(c.local_url);
+            if (['http:', 'https:'].includes(url.protocol)) {
+              local.href = url.href;
+              local.hidden = false;
+            }
+          } catch {}
+        }
+      }
+      function showSnapshot(s, isFrame, badConnection = false) {
+        const hasFrame = !!frameKey(s) && s.fresh !== false;
+        const hasPose = hasFrame && cameraPose(s.camera_pose);
+        const cameraMode = s.frame_mode === 'camera';
+        const cal = s.calibration;
+        const calLabels = {saved:'已标定 · 待接收画面',matched:'已标定 · 当前生效',lens_unverified:'已应用 · 镜头待核对',missing:'尚未标定',mismatch:'当前画面与标定不符'};
+        el('calState').textContent = calLabels[cal?.state] || '等待工作台';
+        el('calState').dataset.tone = cal?.state==='mismatch'?'bad':['missing','lens_unverified'].includes(cal?.state)?'warn':'';
+        const calParts=[];
+        if (Array.isArray(cal?.size)) calParts.push(cal.size.join(' × '));
+        if (cal?.views) calParts.push(cal.views+' 个视角');
+        if (finite(cal?.validation_px)) calParts.push('验证误差 '+cal.validation_px+' px');
+        el('calDetail').textContent=calParts.join(' · ') || (cal?.state==='missing'?'使用估计内参，可打开棋盘标定。':'');
+        el('linkState').textContent=s.connection?(hasFrame?'直连 · 画面已到达':'直连 · 等待视频'):'等待工作台';
+        el('linkDetail').textContent= s.device ? (s.device+' · '+(s.model_name||'')) : '';
+        if (s.camera_rx) {
+          const rx = s.camera_rx;
+          el('linkDetail').textContent += ' · 收包 ' + rx.received + ' · 超时 ' + rx.expired
+            + ' · 重复 ' + rx.duplicate + ' · 最后接收帧 ' + rx.last_accepted_seq;
+        }
+        el('coordState').textContent=s.frame_mode?(cameraMode?'相机光心':s.registered?'机械臂基座':'参考块底面'):'等待工作台';
+        el('baseState').textContent=s.frame_mode?(s.registered?'基座方向已确认':s.base_configured?'已保存基座配准':'机械臂基座尚未配准'):'';
+        el('measuredLegend').hidden=s.pipeline==='fast';
+        const fast = cameraMode && s.pipeline === 'fast';
+        el('plotTitle').textContent = cameraMode ? (fast ? '相机 XY · 模型估计轨迹' : '相机 XY · 实测轨迹') : '水平面轨迹';
+        el('plotInfo').textContent = fast ? '轨迹连接同一目标的融合估计中心。缺少当前图像证据时断开。' : '实心点为当前融合中心，空心点为最后一次观测。遮挡期间轨迹断开。';
+        if (!savingMode && s.frame_mode) el('coordMode').value = s.pipeline==='fast' ? 'fast' : s.frame_mode;
+        el('coordMode').disabled = paused || savingMode || !s.frame_mode;
+        const rows = hasFrame && (hasPose || cameraMode)
+          ? (s.rows || []).filter((r) => !r.predicted && r.measured !== false && vec(r.xyz))
+          : [];
+        const valid = rows.length > 0;
+        const completions=hasFrame?(s.completions||[]):[];
+        const rigid=hasFrame && Array.isArray(s.pose_tracks);
+        const poseTracks=rigid?s.pose_tracks:[];
+        el('candidateLegend').textContent=rigid?'橙线保深度 · 断线为预测或保持':'二维候选';
+        const hasSim=valid || ((rigid?poseTracks:completions).length>0 && (cameraMode||hasPose));
+        const ul=el('completions');
+        ul.replaceChildren();
+        for (const c of fast ? [] : completions) {
+          const posMode=el('positionMode').value;
+          const xyz=posMode==='lead_xyz' ? c.lead_camera_xyz : posMode==='xyz' ? (c.fused_camera_xyz||c.camera_xyz) : c.camera_xyz;
+          const li=document.createElement('li');
+          li.textContent=colorOf(c)[0]+(c.track_id?' #'+c.track_id:'')+'　'+(vec(xyz)?xyz.map(x=>x.toFixed(1)).join(' / ')+' mm':'等待连续观测')+
+            (posMode==='lead_xyz'&&vec(xyz)?'　+'+c.lead_ms+' ms':'');
+          ul.append(li);
+        }
+        el('completionsBox').hidden=fast || !completions.length;
+        el('positionsTitle').textContent=fast?'方块中心 · 模型估计':'方块中心坐标';
+        el('positionMode').options[1].text=s.verified_pose?'本帧 PnP':fast?'本帧补全':'本帧观测';
+        el('qualityHeading').textContent=fast?'位置来源':'重投影误差';
+        el('qualityHeading').title=fast?'估计位置使用的图像或时间信息':'姿态模型与相机角点的投影偏差';
+        const calibrated = typeof s.calibrated === 'boolean' ? s.calibrated : initialMode.includes('实测内参');
+        el('cameraMode').textContent =
+          (!hasFrame && cal ? calLabels[cal.state] : s.calibration_note) || (calibrated ? '使用实测相机内参' : '使用估计内参 · 深度待验证');
+        let reference = '参考块底面坐标 · 尚未与机械臂基座配准';
+        if (cameraMode) reference = '相机光心坐标 · X 向右，Y 向下，Z 为镜头前方深度';
+        else if (s.registered) reference = '机械臂基座坐标 · 静态机械臂模型';
+        else if (s.base_configured) reference = '参考块底面坐标 · 已有基座配准，等待确认 +X 方向';
+        el('frameName').textContent = typeof s.registered === 'boolean' ? reference : initialFrame;
+        el('axisFrame').textContent = cameraMode ? '相机轴' : '工位轴';
+        const canOrient = !paused && hasPose && s.base_configured && !s.registered && s.axis_epoch;
+        const epoch = canOrient ? s.axis_epoch : null;
+        if (epoch !== orientationEpoch) {
+          orientationEpoch = epoch;
+          el('xEdge').value = '';
+          el('orientationMessage').textContent = '';
+        }
+        el('orientation').hidden = !canOrient;
+        el('orientSubmit').disabled = orienting || !canOrient || el('xEdge').value === '';
+        let guidance = cameraMode ? '将任一彩色方块放入画面，保持一面清晰可见。' : '让固定红色参考块的完整顶面进入画面。';
+        if (badConnection) {
+          badge('服务未连接', 'bad');
+        } else if (paused) {
+          badge('画面已定格', 'warn');
+          guidance = '显示定格时的画面和坐标。';
+        } else if (!hasFrame) {
+          badge('等待视频', '');
+          guidance = '等待相机开始传输';
+        } else if (valid) {
+          badge('正在跟踪', 'ok');
+          guidance = '相机与仿真显示同一帧。';
+        } else {
+          badge(rigid && poseTracks.length && !completions.length?'遮挡保持':completions.length?'模型估计':'等待定位', 'warn');
+        }
+        el('status').textContent = !paused && s.status && s.status !== '跟踪中' ? s.status : guidance;
+        el('count').textContent = hasFrame ? (s.box_only ? (s.partial||[]).length : rows.length+completions.length) : '—';
+        el('age').textContent = hasFrame && finite(s.age_ms) ? Math.round(s.age_ms) : '—';
+        el('infer').textContent = hasFrame && finite(s.ms) ? Math.round(s.ms) : '—';
+        el('seqLabel').textContent = hasFrame ? '第 ' + s.seq + ' 帧' : '尚无有效帧';
+        const heldImage = !hasFrame && el('im').hasAttribute('src');
+        media('im', 'camEmpty', hasFrame ? s.image : null, hasFrame || heldImage);
+        el('staleCamera').hidden = !heldImage;
+        if (hasFrame && s.image) el('im').dataset.seq = s.seq;
+        if (heldImage) el('seqLabel').textContent = '最后收到第 ' + el('im').dataset.seq + ' 帧';
+        // The backend sends both JPEGs only for a fresh display frame. If only
+        // the camera JPEG arrived, the renderer failed on this particular frame.
+        if (s.image && !s.sim) el('sim').removeAttribute('src');
+        if (s.sim && hasSim) renderedView = Object.hasOwn(viewNames, s.view) ? { src: s.sim, view: s.view } : null;
+        media('sim', 'simEmpty', s.sim, hasSim);
+        if (!el('simEmpty').hidden) {
+          renderedView = null;
+          el('simCurrentView').textContent = 'MuJoCo';
+          el('simHint').textContent = !hasFrame ? '等待相机画面' : valid ? '本帧暂无三维渲染' : cameraMode ? '等待可测量的方块面' : '等待参考块定位';
+          el('simHelp').textContent = !hasFrame ? '开始传输后，手机和方块会一起显示在三维场景中。' : valid
+            ? '相机观测有效，可在坐标表中查看本帧方块中心。'
+            : cameraMode ? '黄色框为二维候选。露出更多角点后可计算深度。' : '在工位上固定一个 29 mm 红色方块，让相机看清它的整个顶面。';
+        }
+        if (s.verified_pose && hasFrame && !hasSim) {
+          el('simHint').textContent = '等待方块定位';
+          el('simHelp').textContent = '让方块露出一片清晰的纯色表面。';
+        }
+        if (s.box_only && hasFrame) {
+          el('simHint').textContent = '当前模型输出二维检测框';
+          el('simHelp').textContent = '查看左侧相机画面中的方块位置。';
+        }
+        if (s.sim && hasSim) nameRenderedView();
+        const supportsViews = Object.hasOwn(viewNames, s.view);
+        el('simView').disabled = paused || postedView || !supportsViews;
+        if (supportsViews && !requestedView) el('simView').value = s.view;
+        el('cameraXYZ').textContent = cameraMode ? '以当前镜头光心为原点' : valid ? formatPose(s) : '等待相机位姿';
+        const info = [];
+        if (s.device) info.push('推理设备 ' + s.device);
+        if (s.model_name) info.push(s.model_name);
+        if (s.pose_tracking) info.push('29 mm 刚体 · 卡尔曼滤波');
+        if (hasFrame && s.stage) info.push(s.stage);
+        if (hasFrame && s.partial?.length) info.push('仅二维候选 ' + s.partial.length + ' 个（黄色框）');
+        if (hasFrame && finite(s.processing_p95_ms)) info.push('电脑处理 P95 ' + Math.round(s.processing_p95_ms) + ' ms');
+        if (hasFrame && finite(s.result_age_p95_ms)) info.push('取帧请求至结果 P95 ' + Math.round(s.result_age_p95_ms) + ' ms');
+        if (hasFrame && finite(s.source_fps)) info.push('输入 ' + s.source_fps.toFixed(1) + ' 帧/秒');
+        if (hasFrame && finite(s.p95_ms)) info.push('识别耗时 P95 ' + Math.round(s.p95_ms) + ' ms');
+        el('pipeline').textContent = info.join('　·　');
+        if (isFrame || !hasFrame || paused) {
+          const selection=el('positionMode').value;
+          const displayRows=rigid && selection==='raw_xyz' ? completions.map(c => ({
+            color:c.color,track_id:c.track_id,raw_xyz:c.camera_xyz,sourceLabel:'本帧原始 PnP'
+          })) : rigid ? poseTracks.map(p => {
+            const label={observed:'卡尔曼融合',depth_hold:'深度保持 '+p.depth_age_ms+' ms',
+              predicted:'遮挡预测 '+p.missing_ms+' ms',held:'遮挡保持 '+p.missing_ms+' ms'}[p.source];
+            return {color:p.color,track_id:p.track_id,xyz:p.camera_xyz,lead_xyz:p.lead_camera_xyz,
+              sourceLabel:selection==='lead_xyz'?(vec(p.lead_camera_xyz)?'外推 +'+p.lead_ms+' ms':label+' · 无外推'):label};
+          }) : fast ? completions.map(c => ({
+            color:c.color, track_id:c.track_id, xyz:c.fused_camera_xyz || c.camera_xyz,
+            raw_xyz:c.camera_xyz, lead_xyz:c.lead_camera_xyz,
+            sourceLabel:selection==='lead_xyz'?(vec(c.lead_camera_xyz)?'外推 +'+c.lead_ms+' ms':'待连续观测'):
+              selection==='xyz' && vec(c.fused_camera_xyz)?'时序融合':s.verified_pose?'八角点 PnP':c.outline_refined?'轮廓校正':'本帧补全'
+          })) : rows;
+          table(displayRows, hasFrame ? '当前帧暂无可用三维位置。' : '等待相机画面。');
+          if (paused || !hasFrame || performance.now() - lastPlotAt > 100) drawPlot();
+        }
+        missingTable(hasFrame ? s.history || [] : []);
+        observeHeight(s, isFrame);
+        el('freeze').disabled = !paused && !hasFrame;
+        el('freeze').textContent = paused ? '恢复直播' : '定格观测';
+      }
+      function lose(reason, kind = 'bad', state = {}) {
+        after = '';
+        const now = performance.now();
+        if (liveKeys.size) updateTracks([], now, '');
+        prune(now);
+        snapshot = null;
+        frameTimes.length = 0;
+        lastFrameTime = 0;
+        showSnapshot({ ...state, seq: null, status: reason }, false, kind === 'bad');
+        el('rate').textContent = '—';
+      }
+      function updateRate(t) {
+        while (frameTimes.length && frameTimes[0] < t - 2500) frameTimes.shift();
+        el('rate').textContent =
+          frameTimes.length >= 2
+            ? (((frameTimes.length - 1) * 1000) / Math.max(1, frameTimes.at(-1) - frameTimes[0])).toFixed(1)
+            : '—';
+      }
+      function handleState(s) {
+        const t = performance.now();
+        el('notice').hidden = true;
+        connectInfo(s);
+        const def = [
+          s.registered ?? initialFrame,
+          s.calibrated ?? initialMode,
+          s.revision ?? '',
+          s.axis_epoch ?? '',
+          s.frame_mode ?? '',
+          s.pipeline ?? '',
+        ].join('|');
+        if (sourceSession !== s.session || lastFrameDef !== def) {
+          if (sourceSession !== s.session) el('im').removeAttribute('src');
+          if (lastFrameDef !== null) {
+            record('输入或坐标定义已更新，重新记录轨迹');
+            resetHeight('输入或坐标系已变化，请重新采集两次位置。');
+          }
+          clearTracks();
+          after = '';
+          sourceSession = s.session;
+          lastFrameDef = def;
+        }
+        const k = frameKey(s),
+          hasFrame = !!k && s.fresh !== false;
+        if (!hasFrame) {
+          lose(s.status || '等待相机画面', '', s);
+          return;
+        }
+        const newFrame = k !== after && !!s.image;
+        if (finite(s.age_ms) && s.age_ms > 1500) {
+          lose('画面已过期，等待新的相机帧。', 'warn', s);
+          return;
+        }
+        if (newFrame) {
+          frameTimes.push(t);
+          lastFrameTime = t;
+          after = k;
+          const trackRows = s.pipeline === 'fast'
+            ? (s.completions || []).filter(r => r.track_id != null).map(r => ({color:r.color, track_id:r.track_id, xyz:r.fused_camera_xyz}))
+            : (cameraPose(s.camera_pose) || s.frame_mode === 'camera' ? s.rows || [] : []);
+          updateTracks(trackRows, t, k);
+        }
+        if (!lastFrameTime || t - lastFrameTime > 1500) {
+          lose('画面已过期，等待新的相机帧。', 'warn', s);
+          return;
+        }
+        prune(t);
+        updateRate(t);
+        // An unchanged-frame response may omit JPEGs. Keep the previously displayed image in the DOM.
+        snapshot = s;
+        showSnapshot(s, newFrame);
+      }
+      async function poll() {
+        if (paused || !token || authenticated === false) {
+          setTimeout(poll, 250);
+          return;
+        }
+        const id = requestEpoch;
+        try {
+          const r = await fetch('/state', {
+            headers: { 'X-Pair': token, 'X-After': after, 'X-Wait':'1' },
+            signal: AbortSignal.timeout(2200),
+            cache: 'no-store',
+          });
+          if (id !== requestEpoch || paused) return;
+          if (r.status === 403) {
+            authenticated = false;
+            lose('请重新输入桌面工作台配对码');
+            el('authBox').hidden = false;
+            el('phoneDetails').hidden = true;
+            if (!el('pairDialog').open) el('pairDialog').showModal();
+            return;
+          }
+          if (!r.ok) throw Error('工作台返回 ' + r.status);
+          const s = await r.json();
+          if (id !== requestEpoch || paused) return;
+          authenticated = true;
+          handleState(s);
+        } catch (e) {
+          if (id === requestEpoch && !paused) {
+            lose('无法读取观测数据，正在重连。');
+            el('notice').textContent = e.message;
+            el('notice').hidden = false;
+          }
+        } finally {
+          setTimeout(poll, snapshot ? 1 : 180);
+        }
+      }
+      el('freeze').onclick = () => {
+        if (!paused && snapshot) {
+          paused = true;
+          requestEpoch++;
+          showSnapshot(snapshot, false);
+          el('rate').textContent = '—';
+          return;
+        }
+        paused = false;
+        requestEpoch++;
+        after = '';
+        liveKeys.clear();
+        frameTimes.length = 0;
+        lastFrameTime = 0;
+        el('freeze').disabled = true;
+        el('freeze').textContent = '定格观测';
+        el('status').textContent = '等待读取最新帧…';
+      };
+      el('copyJoin').onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(el('cameraUrl').textContent);
+          el('copyResult').textContent = ' 已复制';
+        } catch { el('copyResult').textContent = ' 请长按上方链接复制'; }
+      };
+      el('connect').onclick = () => el('pairDialog').showModal();
+      el('emptyConnect').onclick = () => el('pairDialog').showModal();
+      el('closeDialog').onclick = () => el('pairDialog').close();
+      el('useDeskCode').onclick = () => {
+        const value = el('deskCode').value;
+        if (!value.trim()) return;
+        saveToken(value);
+        authenticated = null;
+        requestEpoch++;
+        after = '';
+        el('pairDialog').close();
+      };
+      el('deskCode').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') el('useDeskCode').click();
+      });
+      el('positionMode').onchange = () => {
+        if (snapshot) showSnapshot(snapshot, true);
+      };
+      el('xEdge').onchange = () => {
+        el('orientSubmit').disabled = orienting || !orientationEpoch || el('xEdge').value === '';
+      };
+      el('orientation').onsubmit = async (event) => {
+        event.preventDefault();
+        const edge = el('xEdge').value,
+          epoch = orientationEpoch;
+        if (paused || orienting || !epoch || edge === '' || snapshot?.axis_epoch !== epoch) return;
+        orienting = true;
+        el('xEdge').disabled = true;
+        el('orientSubmit').disabled = true;
+        el('orientationMessage').textContent = '正在确认方向…';
+        try {
+          const response = await fetch('/registration/orient', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Pair': token },
+            body: JSON.stringify({ quarter: Number(edge), epoch }),
+            signal: AbortSignal.timeout(4000),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || result.error)
+            throw Error(result.error || result.message || '方向确认失败，请查看最新画面。');
+          record('已确认基座 +X 方向 ' + ['A → B', 'B → C', 'C → D', 'D → A'][Number(edge)]);
+          if (orientationEpoch === epoch) el('orientationMessage').textContent = '方向已确认，正在刷新坐标。';
+        } catch (err) {
+          if (orientationEpoch === epoch) el('orientationMessage').textContent = err.message;
+        } finally {
+          orienting = false;
+          el('xEdge').disabled = false;
+          el('xEdge').value = '';
+          el('orientSubmit').disabled = true;
+        }
+      };
+      for (const btn of document.querySelectorAll('.zoom')) {
+        if (!document.fullscreenEnabled) {
+          btn.hidden = true;
+          continue;
+        }
+        btn.onclick = async () => {
+          try {
+            if (document.fullscreenElement) await document.exitFullscreen();
+            else await el(btn.dataset.for).requestFullscreen();
+          } catch (e) {
+            el('notice').textContent = '无法进入全屏，可使用浏览器的全屏功能。';
+            el('notice').hidden = false;
+          }
+        };
+      }
+      document.addEventListener('fullscreenchange', () => {
+        for (const btn of document.querySelectorAll('.zoom'))
+          btn.textContent = document.fullscreenElement === el(btn.dataset.for) ? '退出全屏' : '全屏';
+      });
+      setInterval(() => {
+        if (!paused && snapshot && performance.now() - lastFrameTime > 1500)
+          lose('画面已过期，等待新的相机帧。', 'warn');
+      }, 200);
+      if (!token) {
+        el('authBox').hidden = false;
+        el('phoneDetails').hidden = true;
+        el('pairDialog').showModal();
+      }
+      poll();
+    </script>
+  </body>
+</html>

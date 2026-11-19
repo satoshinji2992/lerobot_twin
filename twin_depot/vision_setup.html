@@ -1,0 +1,7 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>连接网络采集相机</title><style>body{font:17px/1.7 system-ui,sans-serif;max-width:36rem;margin:10vh auto;padding:0 1.2rem;color:#193029}a{color:#076148}li{margin:1rem 0}</style>
+<h1>连接网络采集相机</h1><p>用相机所在设备的浏览器打开本页，连接与电脑相同的 Wi-Fi。实时相机需要受信任的 HTTPS。</p>
+<p>Android 或电脑可在系统证书管理中信任本机相机证书。iOS 的操作步骤见下方。</p><ol><li><a href="/camera-root.cer">下载本机相机证书</a>。在“设置 → 通用 → VPN 与设备管理”中查看描述文件。将证书详情的 SHA-256 指纹与电脑工作台“连接相机 → 核对根证书 SHA-256 指纹”中显示的值逐字核对，一致后再安装。使用独立平面工具时，可在电脑终端或桌面页核对。</li>
+<li>在“设置 → 通用 → 关于本机 → 证书信任设置”中对本次安装的 Twin Depot Camera 证书启用完全信任。</li>
+<li><a href="CAMERA_URL">打开相机</a>，输入电脑工作台或终端显示的相机配对码，允许相机访问。</li></ol>
+<p>完成实验后可在“VPN 与设备管理”中移除此证书。</p></html>

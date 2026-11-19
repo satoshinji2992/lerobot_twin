@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>机械臂基座配准 · Twin Depot</title>
+  <style>
+    :root { color-scheme:light; font:15px/1.55 Inter,"Segoe UI","Microsoft YaHei",system-ui,sans-serif; color:#172b2c; background:#eef2f0; --teal:#124a43; --muted:#546c6b; --line:#d8e1dd; }
+    * { box-sizing:border-box; }
+    body { margin:0; } main, header { max-width:1160px; margin:auto; padding:20px clamp(14px,4vw,42px); }
+    header { display:flex; align-items:baseline; flex-wrap:wrap; justify-content:space-between; gap:8px; padding-bottom:0; }
+    h1, h2, h3, p { margin:0; } h1 { font-size:clamp(24px,3vw,36px); letter-spacing:-.035em; } h2 { font-size:21px; } h3 { font-size:16px; } a { color:var(--teal); }
+    main { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(290px,1fr); align-items:start; gap:16px; }
+    section { border:1px solid var(--line); border-radius:12px; background:white; padding:clamp(16px,2vw,24px); }
+    section > * + * { margin-top:16px; }
+    input, button { font:inherit; } input[type=number], input[type=password] { width:100%; min-width:0; border:1px solid #adbfba; background:#fdfefd; color:#172b2c; border-radius:6px; padding:7px 8px; font-variant-numeric:tabular-nums; }
+    input:focus-visible, button:focus-visible, a:focus-visible { outline:3px solid #1c8975; outline-offset:2px; }
+    .hint, figcaption { color:var(--muted); font-size:14px; }
+    figure { margin:0; background:#f1f6f3; padding:12px; border-radius:8px; display:grid; grid-template-columns:104px 1fr; gap:15px; align-items:center; }
+    .face { display:grid; place-items:center; height:86px; position:relative; margin:0 5px; border:2px solid #a34c45; border-radius:3px; background:#f7e5e3; color:#7a3029; font:600 12px/1.2 "Segoe UI",sans-serif; }
+    .face i { position:absolute; padding:3px; font-style:normal; } .tl { top:0; left:0; } .tr { top:0; right:0; } .br { bottom:0; right:0; } .bl { bottom:0; left:0; }
+    .face b { white-space:pre; font:600 14px/1.2 Consolas,monospace; }
+    fieldset { border:0; margin:0; padding:0; min-width:0; } fieldset[disabled] { opacity:.65; }
+    table { width:100%; border-spacing:5px 8px; margin:-4px -5px; width:calc(100% + 10px); font-size:14px; }
+    th { text-align:left; color:var(--muted); font-weight:500; } tbody th { color:#172b2c; white-space:nowrap; }
+    td, th { padding:0; } th:first-child { width:28%; }
+    button { cursor:pointer; border-radius:6px; border:1px solid var(--teal); background:var(--teal); color:white; padding:8px 15px; font-weight:600; }
+    button:disabled { opacity:.45; cursor:default; } button:enabled:hover { background:#236358; }
+    input[type=checkbox] { accent-color:var(--teal); width:17px; height:17px; flex-shrink:0; }
+    .toggle { display:flex; align-items:flex-start; gap:8px; } .toggle input { margin:3px 0 0; }
+    .tolerance { display:flex; align-items:center; gap:12px; margin-top:8px; } .tolerance input { max-width:90px; }
+    #credentials { border:1px solid var(--line); border-radius:6px; padding:8px 12px; } #credentials input { margin-top:6px; }
+    #summary { color:var(--muted); } #summary[data-level="ok"] { color:#116548; } #summary[data-level="bad"] { color:#984136; }
+    dl { display:grid; grid-template-columns:minmax(100px,auto) 1fr; gap:6px 12px; margin:0; } dd { margin:0; color:#172b2c; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; } dt { color:var(--muted); }
+    #warnings { color:#845520; padding-left:19px; margin-bottom:0; } .result { border-top:1px solid var(--line); padding-top:14px; }
+    details > summary { cursor:pointer; } pre { background:#f1f5f3; padding:10px 8px; margin:6px 0 0; overflow:auto; font:13px/1.7 "IBM Plex Mono",Consolas,monospace; }
+    #matrixwrap { margin-top:12px; } [hidden] { display:none!important; }
+    @media(max-width:760px) { main { grid-template-columns:minmax(0,1fr); } header { padding-top:14px; } }
+    @media(max-width:400px) { figure { grid-template-columns:80px 1fr; gap:10px; } section { padding:13px; } tbody th { white-space:normal; } th:first-child { width:24%; } }
+  </style>
+</head>
+<body>
+<header><h1>机械臂基座配准</h1><a href="/" id="back">返回观测台</a></header>
+<main>
+  <section aria-labelledby="teach"><h2 id="teach">记录三个 TCP 触点</h2>
+    <p>固定红块和机械臂基座。用同一已知偏置的工具尖端依次接触顶面中心、+X 和 +Y 方向上的点，抄录机械臂给出的基座坐标，单位为 mm。</p>
+    <figure><div class="face" role="img" aria-label="从顶面上方向下看，四角 A B C D 顺时针排列，+X 向右，+Y 向上"><i class="tl">A</i><i class="tr">B</i><i class="br">C</i><i class="bl">D</i><b>↑ +Y<br>· → +X</b></div>
+    <figcaption>按观测台红块角标确认方向。若角标从 0 编号，A、B、C、D 对应 0、1、2、3。+X 平行 A→B，+Y 平行 D→A，+Z 朝顶面外侧。标记实物轴向，重新识别正方形后核对一次。</figcaption></figure>
+    <form id="form">
+      <fieldset id="measurements">
+        <table aria-label="示教点在基座系下的坐标"><thead><tr><th scope="col">触点</th><th scope="col">基座 X</th><th scope="col">基座 Y</th><th scope="col">基座 Z</th></tr></thead><tbody id="teachingPoints"></tbody></table>
+        <p class="hint">两个方向点均与顶面中心等高，距中心至少 8 mm。可触碰边的中点，或使用固定在顶面延长线上的标记增加基线长度。</p>
+        <p style="margin:16px 0 8px"><label class="toggle"><input type="checkbox" id="useCheck">用独立的第四个实物点复测</label></p>
+        <fieldset id="checkFields" disabled hidden>
+          <p class="hint">取已知参考坐标、且与三个示教点分开的点。参考系以红块底面中心为原点，顶面 Z 为 29 mm。再用 TCP 实测同一点的基座坐标。</p>
+          <table aria-label="独立检查点的参考坐标和基座坐标"><thead><tr><th scope="col">坐标系</th><th scope="col">X</th><th scope="col">Y</th><th scope="col">Z</th></tr></thead><tbody id="checkPoints"></tbody></table>
+          <label class="tolerance">允许误差（mm）<input id="tolerance" type="number" min="0.001" max="100" step="any" value="2" required></label>
+        </fieldset>
+      </fieldset>
+      <div style="margin-top:18px"><button id="preview" type="submit">预览配准</button></div>
+    </form>
+    <details id="credentials"><summary>工作台配对码</summary><label class="hint" for="pin">输入启动观测台时显示的配对码</label><input type="password" autocomplete="off" id="pin"></details>
+  </section>
+  <section aria-labelledby="review"><h2 id="review">配准结果</h2>
+    <p id="summary" role="status">输入三个触点后可以查看底面中心和坐标轴。</p>
+    <div id="result" class="result" hidden>
+      <dl><dt>底面中心 XYZ</dt><dd id="bottom"></dd><dt>+X / +Y 基线</dt><dd id="lengths"></dd><dt>两轴实测夹角</dt><dd id="angle"></dd><dt>+Y 点侧向偏差</dt><dd id="skew"></dd><dt>第四点误差</dt><dd id="error"></dd><dt id="predLabel" hidden>第四点预测 XYZ</dt><dd id="pred" hidden></dd></dl>
+      <ul id="warnings"></ul>
+      <details id="matrixwrap"><summary>基座坐标轴与变换矩阵</summary><pre id="axes"></pre><pre id="matrix"></pre></details>
+    </div>
+    <label class="toggle"><input id="confirmed" type="checkbox" disabled>我已核对实物 +X、+Y 和顶面朝向，应用此配准到观测台。</label>
+    <button id="apply" type="button" disabled>应用到基座坐标</button>
+  </section>
+</main>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+function addPoint(parent, key, label) {
+  const row = $(parent).insertRow();
+  const heading = document.createElement('th');
+  heading.scope = 'row';
+  heading.textContent = label;
+  row.appendChild(heading);
+  for (const axis of ['X','Y','Z']) {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.step = 'any';
+    input.required = true;
+    input.id = key + axis;
+    input.setAttribute('aria-label', label + ' ' + axis + '（mm）');
+    row.insertCell().appendChild(input);
+  }
+}
+addPoint('teachingPoints', 'top', '顶面中心');
+addPoint('teachingPoints', 'px', '+X 方向点');
+addPoint('teachingPoints', 'py', '+Y 方向点');
+addPoint('checkPoints', 'ref', '参考系已知');
+addPoint('checkPoints', 'base', '基座系实测');
+$('pin').value = location.hash.slice(1) || sessionStorage.robotViewPin || '';
+if (location.hash) history.replaceState(null,'',location.pathname);
+function persistPin() {
+  sessionStorage.robotViewPin = $('pin').value.trim();
+  $('back').href = '/#' + encodeURIComponent(sessionStorage.robotViewPin);
+}
+persistPin();
+$('credentials').open = !$('pin').value;
+let generation = 0;
+let candidate = null;
+function status(message, level='') {
+  $('summary').textContent = message;
+  $('summary').dataset.level = level;
+}
+function invalidate() {
+  generation++;
+  candidate = null;
+  $('result').hidden = true;
+  $('apply').disabled = true;
+  $('confirmed').checked = false;
+  $('confirmed').disabled = true;
+  $('preview').disabled = false;
+  status('输入已更改，请预览本次配准。');
+}
+$('form').addEventListener('input', invalidate);
+$('pin').addEventListener('input', () => { persistPin(); invalidate(); });
+$('useCheck').addEventListener('change', () => {
+  $('checkFields').disabled = !$('useCheck').checked;
+  $('checkFields').hidden = !$('useCheck').checked;
+});
+function readPoint(prefix) {
+  return ['X','Y','Z'].map(axis => $(prefix+axis).valueAsNumber);
+}
+function inputs() {
+  const useCheck = $('useCheck').checked;
+  return {top_center:readPoint('top'), x_point:readPoint('px'), y_point:readPoint('py'),
+          check:useCheck ? {reference:readPoint('ref'), base:readPoint('base')} : null,
+          tolerance_mm:useCheck ? $('tolerance').valueAsNumber : 2};
+}
+async function post(action, payload) {
+  const response = await fetch('/registration/' + action, {method:'POST', headers:{'Content-Type':'application/json','X-Pair':$('pin').value.trim()},
+      body:JSON.stringify(payload), signal:AbortSignal.timeout(12000)});
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.error) {
+    if (response.status === 403) $('credentials').open = true;
+    throw new Error(body.error || body.message || (response.status === 403 ? '配对码无效，请输入观测台当前的配对码。' : '请求失败（HTTP ' + response.status + '）'));
+  }
+  return body.result || body;
+}
+const vector = (xyz, places) => xyz.map(v=>Number(v).toFixed(places)).join(' / ');
+function show(result) {
+  $('bottom').textContent = vector(result.bottom_center,2)+' mm';
+  $('lengths').textContent = vector(result.lengths_mm,1)+' mm';
+  $('angle').textContent = result.angle_deg.toFixed(2)+'°';
+  $('skew').textContent = result.off_axis_mm.toFixed(2)+' mm';
+  $('error').textContent = result.check_error_mm === null ? '未复测' : result.check_error_mm.toFixed(2)+' mm（允许 '+result.tolerance_mm+' mm）';
+  $('pred').hidden = $('predLabel').hidden = !result.check_predicted_base;
+  if (result.check_predicted_base) $('pred').textContent = vector(result.check_predicted_base,2)+' mm';
+  $('axes').textContent = ['x','y','z'].map(a=>'+'+a.toUpperCase()+'   '+vector(result.axes[a],4)).join('\n');
+  $('matrix').textContent = result.base_from_reference.map(row=>row.map(v=>v.toFixed(3).padStart(9)).join(' ')).join('\n');
+  $('warnings').replaceChildren();
+  for (const message of result.warnings) {
+    const li = document.createElement('li');
+    li.textContent = message;
+    $('warnings').append(li);
+  }
+  $('result').hidden = false;
+  $('confirmed').disabled = !result.can_apply;
+}
+$('form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  invalidate();
+  if (!$('pin').value.trim()) {
+    $('credentials').open = true;
+    $('pin').focus();
+    status('请填写工作台配对码。','bad');
+    return;
+  }
+  const serial = generation;
+  const payload = inputs();
+  $('preview').disabled = true;
+  status('正在计算变换…');
+  try {
+    const result = await post('preview', payload);
+    if (serial !== generation) return;
+    show(result);
+    if (result.can_apply) candidate = payload;
+    status(result.can_apply ? '请核对底面中心、轴向和复测误差，再应用配准。' : '复测超出允许误差，请检查触点后重新预览。', result.can_apply ? 'ok' : 'bad');
+  } catch (error) {
+    if (serial === generation) status(error.message,'bad');
+  } finally {
+    if (serial === generation) $('preview').disabled = false;
+  }
+});
+$('confirmed').addEventListener('change', () => { $('apply').disabled = !candidate || !$('confirmed').checked; });
+$('apply').addEventListener('click', async () => {
+  if (!candidate || !$('confirmed').checked) return;
+  $('preview').disabled = $('confirmed').disabled = $('apply').disabled = true;
+  $('measurements').disabled = $('pin').disabled = true;
+  status('正在保存配准…');
+  try {
+    await post('apply', candidate);
+    status('基座配准已保存，可以返回观测台查看基座坐标。','ok');
+    candidate = null;
+  } catch (error) {
+    status(error.message,'bad');
+    $('confirmed').checked = false;
+    $('confirmed').disabled = false;
+  } finally {
+    $('measurements').disabled = $('pin').disabled = $('preview').disabled = false;
+  }
+});
+</script>
+</body></html>
